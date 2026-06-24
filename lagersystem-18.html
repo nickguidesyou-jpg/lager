@@ -1,0 +1,2303 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lager — Bordbensvirksomhed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0F0E0C;
+  --ink-2: #3A3835;
+  --ink-3: #7A7774;
+  --border: #E2DFD9;
+  --border-light: #EDEBE6;
+  --surface: #FAFAF8;
+  --surface-2: #F3F1EC;
+  --white: #FFFFFF;
+  --accent: #C8521A;
+  --accent-dim: #F5E8DF;
+  --green: #2D6A2D;
+  --green-dim: #E2F0E2;
+  --blue: #1A4A7A;
+  --blue-dim: #E0EBF5;
+  --amber: #7A5A1A;
+  --amber-dim: #F5EDDB;
+  --red: #CC2929;
+  --red-dim: #FCEBEB;
+  --radius: 6px;
+  --radius-lg: 10px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── LAYOUT ── */
+.shell { display: flex; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--ink);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+}
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.sidebar-logo .wordmark {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.sidebar-logo .sub {
+  font-size: 11px;
+  color: rgba(255,255,255,.38);
+  margin-top: 3px;
+  letter-spacing: .02em;
+}
+.sidebar-nav { padding: 12px 10px; flex: 1; }
+.nav-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.3);
+  padding: 6px 10px 4px;
+  margin-top: 8px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255,255,255,.6);
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: 'Inter', sans-serif;
+  transition: color .12s, background .12s;
+}
+.nav-item:hover { color: #fff; background: rgba(255,255,255,.06); }
+.nav-item.active { color: #fff; background: rgba(255,255,255,.1); font-weight: 500; }
+.nav-item .nav-icon { font-size: 15px; opacity: .7; }
+.nav-item.active .nav-icon { opacity: 1; }
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #34C759;
+  flex-shrink: 0;
+  transition: background .3s;
+}
+.dot.load { background: #FF9F0A; animation: pulse 1s infinite; }
+.dot.err { background: #FF3B30; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.sync-text { font-size: 11px; color: rgba(255,255,255,.35); font-family: 'IBM Plex Mono', monospace; }
+
+/* ── MAIN ── */
+.main {
+  margin-left: 220px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--white);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -.2px;
+}
+.page-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.content { padding: 28px 32px; }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background .1s, border-color .1s;
+  letter-spacing: -.1px;
+}
+.btn:hover { background: var(--surface-2); border-color: #ccc; }
+.btn:active { background: var(--border-light); }
+.btn-primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-primary:hover { background: var(--ink-2); border-color: transparent; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--surface-2); border-color: var(--border); }
+.btn-danger { color: var(--red); border-color: #FFCACA; }
+.btn-danger:hover { background: var(--red-dim); border-color: #FFB0B0; }
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-accent:hover { background: #A8431A; }
+
+/* ── STAT CARDS ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--border-light);
+}
+.stat-card.accent::before { background: var(--accent); }
+.stat-card.green::before { background: var(--green); }
+.stat-card.blue::before { background: var(--blue); }
+.stat-card.red::before { background: var(--red); }
+.stat-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -.8px;
+  font-family: 'IBM Plex Mono', monospace;
+  line-height: 1;
+}
+.stat-detail {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* ── CARDS ── */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -.1px;
+}
+.card-body { padding: 0; }
+.card-padded { padding: 16px 20px; }
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* ── TABLE ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--ink);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--surface); }
+.td-name { font-weight: 500; font-size: 13px; }
+.td-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-family: 'IBM Plex Mono', monospace; }
+.td-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* ── BADGES ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge-blue { background: var(--blue-dim); color: var(--blue); }
+.badge-green { background: var(--green-dim); color: var(--green); }
+.badge-amber { background: var(--amber-dim); color: var(--amber); }
+.badge-gray { background: var(--surface-2); color: var(--ink-3); }
+.badge-red { background: var(--red-dim); color: var(--red); }
+
+/* ── SEARCH + FILTER ── */
+.search-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex: 1;
+  min-width: 220px;
+}
+.search-input-wrap input {
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  font-family: 'Inter', sans-serif;
+  width: 100%;
+}
+.search-input-wrap input::placeholder { color: var(--ink-3); }
+.search-icon { color: var(--ink-3); font-size: 14px; flex-shrink: 0; }
+.filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  padding: 4px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--white);
+  color: var(--ink-3);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: all .1s;
+}
+.chip:hover { border-color: var(--ink-3); color: var(--ink); }
+.chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+/* ── ROOM GRID ── */
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.room-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  position: relative;
+}
+.room-card:hover { border-color: var(--ink-3); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.room-card.selected { border-color: var(--ink); box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+.room-card.selected::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.room-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 130px;
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+}
+.room-add:hover { border-color: var(--ink-3); background: var(--surface); }
+.room-num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 6px;
+  letter-spacing: -1px;
+}
+.room-name { font-size: 14px; font-weight: 600; color: var(--ink); }
+.room-meta { font-size: 11px; color: var(--ink-3); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+.room-actions { display: flex; gap: 6px; margin-top: 14px; }
+
+/* ── LIST ROWS ── */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+.list-row:last-child { border-bottom: none; }
+.list-row-name { flex: 1; font-size: 13px; font-weight: 500; }
+.list-row-sub { font-size: 11px; color: var(--ink-3); font-family: 'IBM Plex Mono', monospace; }
+
+/* ── PROGRESS ── */
+.progress { height: 3px; background: var(--surface-2); border-radius: 2px; margin-top: 7px; }
+.progress-fill { height: 100%; border-radius: 2px; background: var(--green); transition: width .3s; }
+.progress-fill.low { background: var(--red); }
+
+/* ── LOW STOCK ROW ── */
+.low-row {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+.low-row:last-child { border-bottom: none; }
+.low-row-top { display: flex; justify-content: space-between; align-items: baseline; }
+.low-row-name { font-size: 13px; font-weight: 500; }
+.low-row-qty { font-size: 12px; font-weight: 600; color: var(--red); font-family: 'IBM Plex Mono', monospace; }
+.low-row-loc { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+/* ── MODAL ── */
+.modal-bg {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  backdrop-filter: blur(2px);
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--white);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0,0,0,.2);
+}
+.modal-head {
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-title { font-size: 16px; font-weight: 600; letter-spacing: -.2px; }
+.modal-close {
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--ink-3);
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit;
+}
+.modal-close:hover { background: var(--surface-2); }
+.modal-body { padding: 20px 24px; }
+.modal-foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+  background: var(--surface);
+  border-radius: 0 0 12px 12px;
+}
+
+/* ── FORM ── */
+.fg { margin-bottom: 14px; }
+.fg label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.fg input, .fg select, .fg textarea {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  transition: border-color .1s, box-shadow .1s;
+}
+.fg input:focus, .fg select:focus, .fg textarea:focus {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(15,14,12,.08);
+}
+.fg textarea { min-height: 64px; resize: vertical; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ── QTY CONTROL ── */
+.qty-ctrl { display: flex; align-items: center; gap: 8px; }
+.qty-btn {
+  width: 32px; height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--ink);
+  font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s;
+}
+.qty-btn:hover { background: var(--border-light); }
+.qty-val {
+  font-size: 16px;
+  font-weight: 600;
+  min-width: 44px;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink);
+}
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 999;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,.25);
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ── ERR BOX ── */
+.err-box {
+  background: var(--red-dim);
+  border: 1px solid #FFBABA;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #7A1C1C;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  display: none;
+}
+
+/* ── EMPTY STATE ── */
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--ink-3);
+}
+.empty-icon { font-size: 32px; margin-bottom: 10px; opacity: .4; }
+.empty-text { font-size: 13px; margin-bottom: 14px; }
+
+/* ── DIVIDER TAG ── */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+/* ── MOBILE BOTTOM NAV ── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 64px;
+  background: var(--ink);
+  border-top: 1px solid rgba(255,255,255,.1);
+  z-index: 400;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mobile-nav-inner {
+  display: flex;
+  align-items: stretch;
+  height: 64px;
+  padding: 0 8px;
+}
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: none;
+  color: rgba(255,255,255,.4);
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: color .12s, background .12s;
+  padding: 6px 4px;
+  letter-spacing: .01em;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-nav-item .mnav-icon { font-size: 20px; line-height: 1; }
+.mobile-nav-item.active { color: #fff; background: rgba(255,255,255,.1); }
+.mobile-nav-ai { color: rgba(255,255,255,.5); }
+.mobile-nav-ai.active { color: #fff; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .stats-grid { grid-template-columns: repeat(2,1fr); }
+  .two-col { grid-template-columns: 1fr; }
+  .mobile-nav { display: flex; }
+  body { padding-bottom: 64px; }
+  .toast { bottom: 80px; right: 16px; }
+  .ai-fab { display: none !important; }
+  .ai-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    max-height: 80dvh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    transform: translateY(100%);
+    opacity: 1;
+  }
+  .ai-panel.open { transform: translateY(0); }
+  .ai-panel-head { border-radius: 20px 20px 0 0; }
+}
+@media (max-width: 600px) {
+  .content { padding: 12px; }
+  .topbar { padding: 12px 16px; }
+  .stats-grid { grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .stat-card { padding: 14px; }
+  .stat-value { font-size: 22px; }
+  .form-row { grid-template-columns: 1fr; }
+  table { font-size: 12px; }
+  thead th { padding: 6px 10px; font-size: 10px; }
+  tbody td { padding: 8px 10px; }
+  .td-actions { gap: 4px; }
+  .room-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .modal {
+    border-radius: 20px 20px 0 0;
+    max-height: 92dvh;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    margin: 0;
+  }
+  .modal-bg.open { align-items: flex-end; padding: 0; }
+}
+
+/* ── SIDEBAR SEARCH ── */
+.sidebar-search {
+  padding: 10px 10px 4px;
+}
+.sidebar-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  transition: border-color .15s;
+}
+.sidebar-search-wrap:focus-within {
+  border-color: rgba(255,255,255,.3);
+  background: rgba(255,255,255,.12);
+}
+.sidebar-search-wrap input {
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: rgba(255,255,255,.85);
+  outline: none;
+  font-family: 'Inter', sans-serif;
+  width: 100%;
+}
+.sidebar-search-wrap input::placeholder { color: rgba(255,255,255,.3); }
+.sidebar-search-icon { font-size: 13px; color: rgba(255,255,255,.35); flex-shrink: 0; }
+.nav-item.hidden { display: none; }
+.nav-no-results {
+  font-size: 11px;
+  color: rgba(255,255,255,.3);
+  padding: 6px 10px;
+  display: none;
+  font-style: italic;
+}
+
+/* ── LOGIN SCREEN ── */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--ink);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.login-box {
+  background: #1A1917;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+}
+.login-logo {
+  width: 64px; height: 64px;
+  object-fit: contain;
+  border-radius: 12px;
+  margin-bottom: 1.25rem;
+}
+.login-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -.3px;
+  margin-bottom: 4px;
+}
+.login-sub {
+  font-size: 12px;
+  color: rgba(255,255,255,.35);
+  margin-bottom: 1.75rem;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.login-input-wrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+.login-input {
+  width: 100%;
+  font-size: 15px;
+  padding: 11px 44px 11px 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+  color: #fff;
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: .12em;
+  outline: none;
+  text-align: center;
+  transition: border-color .15s;
+}
+.login-input:focus { border-color: rgba(255,255,255,.35); }
+.login-input::placeholder { color: rgba(255,255,255,.2); letter-spacing: .04em; font-size: 13px; }
+.login-toggle {
+  position: absolute;
+  right: 12px; top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.3);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+}
+.login-toggle:hover { color: rgba(255,255,255,.6); }
+.login-btn {
+  width: 100%;
+  padding: 11px;
+  background: #fff;
+  color: var(--ink);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: opacity .15s;
+  margin-top: 4px;
+}
+.login-btn:hover { opacity: .88; }
+.login-err {
+  font-size: 12px;
+  color: #FF6B6B;
+  margin-top: 10px;
+  min-height: 18px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.login-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s;
+}
+
+/* ── SHIPMONDO ── */
+.ship-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; padding: 2px 9px;
+  border-radius: 3px; text-transform: uppercase; letter-spacing:.03em;
+}
+.ship-status.created  { background:#E0EBF5; color:#1A4A7A; }
+.ship-status.transit  { background:#FFF0D4; color:#7A5A1A; }
+.ship-status.delivered{ background:#E2F0E2; color:#2D6A2D; }
+.ship-status.returned { background:#FCEBEB; color:#CC2929; }
+.ship-status.unknown  { background:#F0EFEB; color:#7A7774; }
+.tracking-link { font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--blue); text-decoration:none; }
+.tracking-link:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN SCREEN ── -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" alt="SESU logo" class="login-logo">
+    <div class="login-title">Lagersystem</div>
+    <div class="login-sub">SESU bordben — intern adgang</div>
+    <div class="login-input-wrap">
+      <input type="password" id="login-input" class="login-input" value="dpt68uwe" placeholder="Adgangskode" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
+    </div>
+    <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" aria-label="Navigation">
+    <div class="sidebar-logo">
+      <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" alt="SESU logo" style="width:52px;height:52px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px">
+      <div class="wordmark">Lagersystem</div>
+      <div class="sub">sesu.dk</div>
+    </div>
+    <div class="sidebar-search">
+      <div class="sidebar-search-wrap">
+        <span class="sidebar-search-icon">⌕</span>
+        <input type="text" id="nav-search" placeholder="Søg vare..." oninput="filterNavSearch(this.value)" autocomplete="off">
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-label">Navigation</div>
+      <button class="nav-item active" onclick="showTab('oversigt')" id="nav-oversigt">
+        <span class="nav-icon">▦</span> Oversigt
+      </button>
+      <button class="nav-item" onclick="showTab('varer')" id="nav-varer">
+        <span class="nav-icon">☰</span> Alle varer
+      </button>
+      <button class="nav-item" onclick="showTab('rum')" id="nav-rum">
+        <span class="nav-icon">⬡</span> Rum & zoner
+      </button>
+      <button class="nav-item" onclick="showTab('forsendelser')" id="nav-forsendelser">
+        <span class="nav-icon">📦</span> Forsendelser
+      </button>
+      <button class="nav-item" onclick="showTab('priser')" id="nav-priser">
+        <span class="nav-icon">💶</span> Fragtpriser
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sync-row">
+        <div class="dot load" id="dot"></div>
+        <span class="sync-text" id="sync-lbl">Forbinder…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MOBILE BOTTOM NAV -->
+  <nav class="mobile-nav" aria-label="Mobil navigation">
+    <div class="mobile-nav-inner">
+      <button class="mobile-nav-item active" id="mnav-oversigt" onclick="showTab('oversigt')" aria-label="Oversigt">
+        <span class="mnav-icon">▦</span>
+        <span>Oversigt</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-varer" onclick="showTab('varer')" aria-label="Varer">
+        <span class="mnav-icon">☰</span>
+        <span>Varer</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-rum" onclick="showTab('rum')" aria-label="Rum">
+        <span class="mnav-icon">⬡</span>
+        <span>Rum</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-forsendelser" onclick="showTab('forsendelser')" aria-label="Forsendelser">
+        <span class="mnav-icon">📦</span>
+        <span>Forsend.</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-priser" onclick="showTab('priser')" aria-label="Fragtpriser">
+        <span class="mnav-icon">💶</span>
+        <span>Priser</span>
+      </button>
+      <button class="mobile-nav-item mobile-nav-ai" id="mnav-ai" onclick="toggleAI()" aria-label="Assistent">
+        <span class="mnav-icon">✦</span>
+        <span>Assistent</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <div class="page-title" id="page-title">Oversigt</div>
+        <div class="page-sub" id="page-sub">Henter data…</div>
+      </div>
+      <div class="topbar-actions">
+
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
+        <button class="btn btn-primary" onclick="openItemModal(null,null)">+ Tilføj vare</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="err-box" id="err-box"></div>
+
+      <!-- OVERSIGT -->
+      <div id="tab-oversigt" class="view active">
+        <div class="stats-grid" id="stats-grid"></div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Rum oversigt</span></div>
+            <div id="ov-rooms"></div>
+          </div>
+
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Lav beholdning</span>
+            <span id="low-count" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+          </div>
+          <div id="ov-low"></div>
+        </div>
+      </div>
+
+      <!-- VARER -->
+      <div id="tab-varer" class="view" style="display:none">
+        <div class="search-filter">
+          <div class="search-input-wrap">
+            <span class="search-icon">⌕</span>
+            <input type="text" id="search" placeholder="Søg varenavn, rum, placering, SKU…" oninput="renderItems()">
+          </div>
+          <div class="filter-chips" id="filter-chips"></div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th style="width:28%">Varenavn</th>
+                <th style="width:13%">Kategori</th>
+                <th style="width:22%">Placering</th>
+                <th style="width:10%">Antal</th>
+                <th style="width:9%">Min.</th>
+                <th style="width:18%"></th>
+              </tr></thead>
+              <tbody id="items-tbody"></tbody>
+            </table>
+            <div id="items-empty" class="empty" style="display:none">
+              <div class="empty-icon">📭</div>
+              <div class="empty-text">Ingen varer matcher din søgning</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RUM -->
+      <div id="tab-rum" class="view" style="display:none">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+          <button class="btn" onclick="openRoomModal(null)">+ Opret rum</button>
+        </div>
+        <div class="room-grid" id="room-grid"></div>
+        <div class="card" id="room-detail" style="display:none">
+          <div id="room-detail-inner"></div>
+        </div>
+      </div>
+
+      <!-- FORSENDELSER -->
+      <div id="tab-forsendelser" class="view" style="display:none">
+
+        <!-- Top actions -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <div class="search-input-wrap" style="min-width:220px">
+              <span class="search-icon">⌕</span>
+              <input type="text" id="ship-search" placeholder="Søg ordre, navn, tracking…" oninput="shipSearchDebounce()">
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="loadShipments()">⟳ Opdater</button>
+          </div>
+          <button class="btn btn-primary" onclick="openNewShipmentModal()">+ Ny forsendelse</button>
+        </div>
+
+        <!-- Stats row -->
+        <div id="ship-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
+
+        <!-- Shipments table -->
+        <div class="card" id="ship-card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th style="width:8%">ID</th>
+                <th style="width:18%">Modtager</th>
+                <th style="width:15%">Produkt</th>
+                <th style="width:14%">Reference</th>
+                <th style="width:13%">Tracking</th>
+                <th style="width:12%">Dato</th>
+                <th style="width:20%"></th>
+              </tr></thead>
+              <tbody id="ship-tbody"></tbody>
+            </table>
+            <div id="ship-empty" class="empty" style="display:none">
+              <div class="empty-icon">📭</div>
+              <div class="empty-text">Ingen forsendelser fundet</div>
+            </div>
+            <div id="ship-loading" style="text-align:center;padding:2rem;color:var(--ink-3);font-size:13px">Henter forsendelser…</div>
+          </div>
+          <!-- Pagination -->
+          <div id="ship-pagination" style="display:flex;gap:8px;justify-content:center;padding:14px;border-top:1px solid var(--border-light)"></div>
+        </div>
+      </div>
+
+      <!-- FRAGTPRISER -->
+      <div id="tab-priser" class="view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <div class="search-input-wrap" style="min-width:200px">
+              <span class="search-icon">⌕</span>
+              <input type="text" id="pris-search" placeholder="Søg fragtfirma eller produkt…" oninput="filterPriser()">
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadPriser()">⟳ Opdater</button>
+        </div>
+        <div style="background:var(--blue-dim);border:1px solid var(--blue-dim);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--blue);margin-bottom:16px;line-height:1.6">
+          💡 Dette er dine tilgængelige fragtprodukter fra Shipmondo. Spørg <strong>AI-assistenten</strong> (✦) om aktuelle priser — den søger på nettet.
+        </div>
+        <div id="pris-loading" style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px">Henter fragtpriser…</div>
+        <div id="pris-content" style="display:none">
+          <div id="pris-carriers"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="mb" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-box"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbwdbhEo-na7UVPQ4raRAz22NhVxFzE8YvdyK1u06iTTKd4PDbdlQLU1jgHjhubgIUYZjw/exec';
+const CATS = ['Bordben','Beslag','Hyldeplader','Skruer & bolte','Møbelben','Hjul & gliders','Andet'];
+const BADGE = { Bordben:'badge-blue', Beslag:'badge-green', Hyldeplader:'badge-amber', 'Skruer & bolte':'badge-gray', Møbelben:'badge-blue', 'Hjul & gliders':'badge-green', Andet:'badge-gray' };
+const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser' };
+
+let items=[], rooms=[], selRoom=null, activeCat='Alle';
+let autoTimer = null;
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+function sync(s, m){
+  const d=document.getElementById('dot'), l=document.getElementById('sync-lbl');
+  d.className='dot'+(s==='load'?' load':s==='err'?' err':'');
+  l.textContent = m;
+}
+
+function showErr(m){
+  const b=document.getElementById('err-box');
+  b.style.display = m ? 'block' : 'none';
+  if(m) b.innerHTML = m;
+}
+
+function jsonp(params){
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_'+uid();
+    const url = API+'?'+new URLSearchParams({...params, callback:cb});
+    const s = document.createElement('script');
+    const timer = setTimeout(()=>{ cleanup(); reject(new Error('Timeout — tjek Apps Script URL og deployment')); }, 12000);
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    function cleanup(){ clearTimeout(timer); delete window[cb]; if(s.parentNode) s.parentNode.removeChild(s); }
+    s.onerror = () => { cleanup(); reject(new Error('Kunne ikke nå server — tjek deployment er sat til "Alle"')); };
+    s.src = url;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadAll(quiet){
+  if(!quiet) sync('load','Henter data…');
+  showErr(null);
+  try {
+    const d = await jsonp({action:'getAll'});
+    if(d.error) throw new Error(d.error);
+    items = d.items||[];
+    rooms = d.rooms||[];
+    const time = new Date().toLocaleTimeString('da',{hour:'2-digit',minute:'2-digit'});
+    sync('ok', 'Opdateret '+time);
+    document.getElementById('page-sub').textContent = rooms.length+' rum · '+items.length+' varenr. · sidst hentet '+time;
+    renderAll();
+    if(!autoTimer) autoTimer = setInterval(()=>loadAll(true), 30000);
+  } catch(e) {
+    sync('err','Fejl');
+    showErr('<strong>Forbindelsesfejl:</strong> '+e.message+'<br>Tjek at Apps Script er deployed med adgang sat til <strong>"Alle"</strong> og at du har lavet <strong>ny version</strong>.');
+  }
+}
+
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); }
+
+function catBadge(cat){ return `<span class="badge ${BADGE[cat]||'badge-gray'}">${cat}</span>`; }
+
+function renderOverview(){
+  const tq = items.reduce((s,i)=>s+parseInt(i.qty||0),0);
+  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  const cats = [...new Set(items.map(i=>i.cat))].length;
+
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card blue">
+      <div class="stat-label">Varenumre</div>
+      <div class="stat-value">${String(items.length).padStart(2,'0')}</div>
+      <div class="stat-detail">${cats} kategorier</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Stk. i alt</div>
+      <div class="stat-value">${tq.toLocaleString('da')}</div>
+      <div class="stat-detail">på tværs af ${rooms.length} rum</div>
+    </div>
+    <div class="stat-card accent">
+      <div class="stat-label">Rum & zoner</div>
+      <div class="stat-value">${String(rooms.length).padStart(2,'0')}</div>
+      <div class="stat-detail">${items.length} varer fordelt</div>
+    </div>
+    <div class="stat-card ${low.length?'red':''}">
+      <div class="stat-label">Lav beholdning</div>
+      <div class="stat-value" style="color:${low.length?'var(--red)':'var(--ink)'}">${String(low.length).padStart(2,'0')}</div>
+      <div class="stat-detail">${low.length?'kræver genbestilling':'alt over minimum'}</div>
+    </div>`;
+
+  const rEl = document.getElementById('ov-rooms');
+  rEl.innerHTML = rooms.length ? rooms.map(r=>{
+    const cnt = items.filter(i=>i.room===r.id).length;
+    const qty = items.filter(i=>i.room===r.id).reduce((s,i)=>s+parseInt(i.qty||0),0);
+    return `<div class="list-row">
+      <div style="width:32px;height:32px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">▦</div>
+      <div style="flex:1">
+        <div class="list-row-name">${r.name}${r.size?` <span style="font-weight:400;color:var(--ink-3);font-size:11px">— ${r.size}</span>`:''}</div>
+        <div class="list-row-sub">${cnt} varenr. · ${qty.toLocaleString('da')} stk.</div>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty"><div class="empty-icon">⬡</div><div class="empty-text">Ingen rum oprettet</div></div>';
+
+
+
+  document.getElementById('low-count').textContent = low.length ? low.length+' varer' : '';
+  const lEl = document.getElementById('ov-low');
+  if(!low.length){
+    lEl.innerHTML = '<div class="card-padded" style="font-size:13px;color:var(--ink-3)">✓ Alle varer er over minimumsbeholdning</div>';
+    return;
+  }
+  lEl.innerHTML = low.map(i=>{
+    const r = rooms.find(r=>r.id===i.room);
+    const pct = Math.min(Math.round((parseInt(i.qty||0)/Math.max(parseInt(i.minQty||1),1))*100),100);
+    return `<div class="low-row">
+      <div class="low-row-top">
+        <span class="low-row-name">${i.name}</span>
+        <span class="low-row-qty">${i.qty} / ${i.minQty}</span>
+      </div>
+      <div class="low-row-loc">${r?r.name:''} · ${i.shelf}</div>
+      <div class="progress"><div class="progress-fill low" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function renderItems(){
+  const q = (document.getElementById('search').value||'').toLowerCase();
+  document.getElementById('filter-chips').innerHTML = ['Alle',...CATS].map(c=>`
+    <button class="chip${activeCat===c?' active':''}" onclick="activeCat='${c}';renderItems()">${c}</button>`).join('');
+
+  const fil = items.filter(i=>{
+    const r = rooms.find(r=>r.id===i.room);
+    const ms = !q || [i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
+    return ms && (activeCat==='Alle'||i.cat===activeCat);
+  });
+  const tb = document.getElementById('items-tbody'), em = document.getElementById('items-empty');
+  if(!fil.length){ tb.innerHTML=''; em.style.display=''; return; }
+  em.style.display='none';
+  tb.innerHTML = fil.map(i=>{
+    const r = rooms.find(r=>r.id===i.room);
+    const low = parseInt(i.qty||0)<parseInt(i.minQty||0);
+    return `<tr>
+      <td>
+        <div class="td-name">${i.name}</div>
+        ${i.sku?`<div class="td-sub">${i.sku}</div>`:''}
+      </td>
+      <td>${catBadge(i.cat)}</td>
+      <td>
+        <div style="font-size:12px;font-weight:500">${r?r.name:'—'}</div>
+        <div class="td-sub">${i.shelf}</div>
+      </td>
+      <td>
+        <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${i.qty}</span>
+        ${low?'<span class="badge badge-red" style="margin-left:4px;font-size:9px">LAV</span>':''}
+      </td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
+      <td>
+        <div class="td-actions">
+          <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
+          <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderRooms(){
+  const grid = document.getElementById('room-grid');
+  grid.innerHTML = rooms.map((r,idx)=>{
+    const cnt = items.filter(i=>i.room===r.id).length;
+    const qty = items.filter(i=>i.room===r.id).reduce((s,i)=>s+parseInt(i.qty||0),0);
+    return `<div class="room-card${selRoom===r.id?' selected':''}" onclick="selRoom=selRoom==='${r.id}'?null:'${r.id}';renderRooms()">
+      <div class="room-num">${String(idx+1).padStart(2,'0')}</div>
+      <div class="room-name">${r.name}</div>
+      <div class="room-meta">${r.size?r.size+' · ':''}${cnt} varenr.</div>
+      <div class="room-meta">${qty.toLocaleString('da')} stk. i alt</div>
+      ${r.desc?`<div class="room-meta" style="margin-top:4px;font-style:italic">${r.desc}</div>`:''}
+      <div class="room-actions">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openRoomModal('${r.id}')">Rediger</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();delRoom('${r.id}')">Slet</button>
+      </div>
+    </div>`;
+  }).join('')+`<div class="room-card room-add" onclick="openRoomModal(null)">
+    <div style="font-size:28px;color:var(--border);margin-bottom:6px">+</div>
+    <div style="font-size:12px;color:var(--ink-3)">Opret rum</div>
+  </div>`;
+
+  const det = document.getElementById('room-detail');
+  if(selRoom){
+    const r = rooms.find(r=>r.id===selRoom);
+    const ri = items.filter(i=>i.room===selRoom);
+    det.style.display='block';
+    document.getElementById('room-detail-inner').innerHTML = `
+      <div class="card-header">
+        <span class="card-title">▦ ${r.name}${r.size?' <span style="font-weight:400;color:var(--ink-3)">— '+r.size+'</span>':''}</span>
+        <button class="btn btn-primary btn-sm" onclick="openItemModal(null,'${r.id}')">+ Tilføj vare her</button>
+      </div>
+      ${ri.length ? `<div class="table-wrap"><table>
+        <thead><tr>
+          <th style="width:38%">Varenavn</th>
+          <th style="width:22%">Placering</th>
+          <th style="width:12%">Antal</th>
+          <th style="width:28%"></th>
+        </tr></thead>
+        <tbody>${ri.map(i=>`<tr>
+          <td><div class="td-name">${i.name}</div>${catBadge(i.cat)}</td>
+          <td><div class="td-sub" style="font-size:12px">${i.shelf}</div></td>
+          <td><span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${parseInt(i.qty||0)<parseInt(i.minQty||0)?'var(--red)':'var(--ink)'}">${i.qty}</span></td>
+          <td><div class="td-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
+            <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
+          </div></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty"><div class="empty-icon">📦</div><div class="empty-text">Ingen varer i dette rum</div><button class="btn btn-primary btn-sm" onclick="openItemModal(null,'${r.id}')">+ Tilføj vare</button></div>`}`;
+  } else {
+    det.style.display = 'none';
+  }
+}
+
+function openItemModal(id, preRoom){
+  const it = id ? items.find(i=>i.id===id) : null;
+  const nm=it?it.name:'', cat=it?it.cat:'Bordben';
+  const room=it?it.room:(preRoom||rooms[0]?.id||'');
+  const shelf=it?it.shelf:'', qty=it?parseInt(it.qty):0;
+  const minQ=it?parseInt(it.minQty):10, sku=it?it.sku:'', note=it?it.note:'';
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">${id?'Rediger vare':'Tilføj ny vare'}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label>Varenavn</label><input id="f-name" value="${nm}" placeholder="F.eks. Koniske bordben 71cm" autofocus></div>
+      <div class="form-row">
+        <div class="fg"><label>Kategori</label><select id="f-cat">${CATS.map(c=>`<option${c===cat?' selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="fg"><label>Varenr. / SKU</label><input id="f-sku" value="${sku}" placeholder="BB-71-K"></div>
+      </div>
+      <div class="fg"><label>Rum</label><select id="f-room">${rooms.map(r=>`<option value="${r.id}"${r.id===room?' selected':''}>${r.name}</option>`).join('')}${!rooms.length?'<option value="">— opret rum først —</option>':''}</select></div>
+      <div class="fg"><label>Præcis placering</label><input id="f-shelf" value="${shelf}" placeholder="Reol 2, sektion B, hylde 3"></div>
+      <div class="form-row">
+        <div class="fg">
+          <label>Antal på lager</label>
+          <div class="qty-ctrl">
+            <button class="qty-btn" onclick="adjQ(-1)">−</button>
+            <span class="qty-val" id="q-d">${qty}</span>
+            <input type="hidden" id="f-qty" value="${qty}">
+            <button class="qty-btn" onclick="adjQ(1)">+</button>
+          </div>
+        </div>
+        <div class="fg"><label>Min. beholdning</label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
+      </div>
+      <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${note}</textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="saveItem('${id||''}',${!!id})">${id?'Gem ændringer':'Tilføj vare'}</button>
+    </div>`;
+  openModal();
+}
+
+function adjQ(d){ const i=document.getElementById('f-qty'), v=Math.max(0,parseInt(i.value||0)+d); i.value=v; document.getElementById('q-d').textContent=v; }
+
+async function saveItem(id, edit){
+  const name = document.getElementById('f-name').value.trim();
+  if(!name) return alert('Angiv et varenavn');
+  const p = { action:'saveItem', id:id||uid(), name,
+    cat:document.getElementById('f-cat').value,
+    room:document.getElementById('f-room').value,
+    shelf:document.getElementById('f-shelf').value.trim(),
+    qty:document.getElementById('f-qty').value,
+    minQty:document.getElementById('f-minq').value,
+    sku:document.getElementById('f-sku').value.trim(),
+    note:document.getElementById('f-note').value.trim() };
+  closeModal(); sync('load','Gemmer…');
+  try { const r=await jsonp(p); if(r.error) throw new Error(r.error); toast('Vare gemt'); await loadAll(); }
+  catch(e){ sync('err','Fejl'); showErr('Kunne ikke gemme: '+e.message); }
+}
+
+async function delItem(id){
+  if(!confirm('Slet denne vare fra lageret?')) return;
+  sync('load','Sletter…');
+  try { await jsonp({action:'deleteItem',id}); toast('Vare slettet'); await loadAll(); }
+  catch(e){ sync('err','Fejl'); showErr(e.message); }
+}
+
+function openRoomModal(id){
+  const r = id ? rooms.find(r=>r.id===id) : null;
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">${id?'Rediger rum':'Opret rum / zone'}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label>Rum-navn</label><input id="r-name" value="${r?r.name:''}" placeholder="F.eks. Lager A" autofocus></div>
+      <div class="fg"><label>Beskrivelse</label><input id="r-desc" value="${r?r.desc||'':''}" placeholder="F.eks. Hoved lager for store varer"></div>
+      <div class="fg"><label>Størrelse (valgfrit)</label><input id="r-size" value="${r?r.size||'':''}" placeholder="F.eks. 10×8 m"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="saveRoom('${id||''}',${!!id})">${id?'Gem ændringer':'Opret rum'}</button>
+    </div>`;
+  openModal();
+}
+
+async function saveRoom(id, edit){
+  const name = document.getElementById('r-name').value.trim();
+  if(!name) return alert('Angiv et rum-navn');
+  const p = { action:'saveRoom', id:id||uid(), name,
+    desc:document.getElementById('r-desc').value.trim(),
+    size:document.getElementById('r-size').value.trim() };
+  closeModal(); sync('load','Gemmer…');
+  try { const r=await jsonp(p); if(r.error) throw new Error(r.error); toast('Rum gemt'); await loadAll(); }
+  catch(e){ sync('err','Fejl'); showErr('Kunne ikke gemme: '+e.message); }
+}
+
+async function delRoom(id){
+  const cnt = items.filter(i=>i.room===id).length;
+  if(!confirm(`Dette rum har ${cnt} vare(r). Slet alligevel?`)) return;
+  sync('load','Sletter…');
+  try { await jsonp({action:'deleteRoom',id}); if(selRoom===id) selRoom=null; toast('Rum slettet'); await loadAll(); }
+  catch(e){ sync('err','Fejl'); showErr(e.message); }
+}
+
+function showTab(t){
+  ['oversigt','varer','rum','forsendelser','priser'].forEach(n=>{
+    const el = document.getElementById('tab-'+n);
+    if(el) el.style.display = n===t ? 'block' : 'none';
+    const nav = document.getElementById('nav-'+n);
+    if(nav) nav.classList.toggle('active', n===t);
+    const mnav = document.getElementById('mnav-'+n);
+    if(mnav) mnav.classList.toggle('active', n===t);
+  });
+  const mnavAI = document.getElementById('mnav-ai');
+  if(mnavAI) mnavAI.classList.remove('active');
+  document.getElementById('page-title').textContent = TITLES[t] || t;
+  if(t === 'forsendelser' && !shipLoaded) loadShipments();
+  if(t === 'priser' && !prisLoaded) loadPriser();
+}
+
+function openModal(){ document.getElementById('mb').classList.add('open'); }
+function closeModal(){ document.getElementById('mb').classList.remove('open'); }
+
+let tT;
+function toast(m, duration=3500){
+  const e=document.getElementById('toast');
+  e.textContent=m; e.classList.add('show');
+  clearTimeout(tT); tT=setTimeout(()=>e.classList.remove('show'), duration);
+}
+
+
+function filterNavSearch(q) {
+  const term = q.toLowerCase().trim();
+  // If empty, show all items normally
+  if (!term) {
+    renderItems();
+    // reset filter chips
+    activeCat = 'Alle';
+    document.getElementById('search').value = '';
+    return;
+  }
+  // Switch to varer tab and run search there
+  showTab('varer');
+  document.getElementById('search').value = q;
+  renderItems();
+}
+
+document.querySelector('#tab-oversigt').classList.add('active');
+loadAll();
+
+
+// ── SHIPMONDO ──
+const SHIP_API = 'https://script.google.com/macros/s/AKfycbwLeec725xXMint1S5tGrt4jDfYCOj2b96FIJnw8JF4HINtWrJaE7JMzgTsb453z1jdKQ/exec';
+let shipLoaded = false;
+let shipPage = 1;
+let shipSearchTimer = null;
+let availableProducts = [];
+let availablePrinters = [];
+
+// Pre-filled sender info from Shipmondo account (Khaki ApS)
+const SENDER_INFO = {
+  name:    'Khaki ApS',
+  address: 'Næsbyvej 6',
+  zip:     '4200',
+  city:    'Slagelse',
+  email:   'vio@hellokhaki.dk',
+  phone:   '4243925633'
+};
+
+function shipSearchDebounce(){
+  clearTimeout(shipSearchTimer);
+  shipSearchTimer = setTimeout(()=>{ shipPage=1; loadShipments(); }, 400);
+}
+
+function jsonpShip(params){
+  return new Promise((resolve, reject) => {
+    const cb = 'shipcb_'+uid();
+    const url = SHIP_API+'?'+new URLSearchParams({...params, callback:cb});
+    const s = document.createElement('script');
+    const timer = setTimeout(()=>{ cleanup(); reject(new Error('Timeout')); }, 15000);
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    function cleanup(){ clearTimeout(timer); delete window[cb]; if(s.parentNode) s.parentNode.removeChild(s); }
+    s.onerror = () => { cleanup(); reject(new Error('Script fejl')); };
+    s.src = url;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadShipments(){
+  const loadEl = document.getElementById('ship-loading');
+  const tbody  = document.getElementById('ship-tbody');
+  const empty  = document.getElementById('ship-empty');
+  if(loadEl) loadEl.style.display='block';
+  if(tbody)  tbody.innerHTML='';
+  if(empty)  empty.style.display='none';
+
+  const q = (document.getElementById('ship-search')||{}).value||'';
+  try {
+    const d = await jsonpShip({ action:'getShipments', page:shipPage, q });
+    shipLoaded = true;
+    if(loadEl) loadEl.style.display='none';
+    if(d.error) throw new Error(d.error);
+    const ships = d.shipments||[];
+    renderShipments(ships);
+    // Update pagination info
+    const pagEl = document.getElementById('ship-pagination');
+    if(pagEl){
+      pagEl.innerHTML = `
+        <button class="btn btn-sm btn-ghost" onclick="shipPage=Math.max(1,shipPage-1);loadShipments()" ${shipPage<=1?'disabled':''}>← Forrige</button>
+        <span style="font-size:12px;color:var(--ink-3);padding:0 8px;line-height:30px">Side ${shipPage}</span>
+        <button class="btn btn-sm btn-ghost" onclick="shipPage++;loadShipments()" ${ships.length<25?'disabled':''}>Næste →</button>`;
+    }
+  } catch(e) {
+    if(loadEl) loadEl.textContent = 'Fejl: '+e.message;
+  }
+}
+
+function renderShipments(ships){
+  const tbody = document.getElementById('ship-tbody');
+  const empty = document.getElementById('ship-empty');
+
+  // Stats
+  const total = ships.length;
+  const delivered = ships.filter(s=>s.state==='delivered').length;
+  const transit   = ships.filter(s=>s.state==='in_transit'||s.state==='transit').length;
+  document.getElementById('ship-stats').innerHTML = `
+    <div class="stat-card blue"><div class="stat-label">Forsendelser</div><div class="stat-value">${String(total).padStart(2,'0')}</div><div class="stat-detail">denne side</div></div>
+    <div class="stat-card"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail">aktive forsendelser</div></div>
+    <div class="stat-card green"><div class="stat-label">Leveret</div><div class="stat-value">${String(delivered).padStart(2,'0')}</div><div class="stat-detail">afsluttede</div></div>`;
+
+  if(!ships.length){ if(empty) empty.style.display=''; return; }
+
+  tbody.innerHTML = ships.map(s => {
+    const receiver = (s.parties||[]).find(p=>p.type==='receiver') || s.receiver || {};
+    const sender   = (s.parties||[]).find(p=>p.type==='sender')   || s.sender   || {};
+    const name = receiver.name || '—';
+    const addr = [receiver.address1, receiver.postal_code, receiver.city].filter(Boolean).join(', ');
+    const date = s.created_at ? new Date(s.created_at).toLocaleDateString('da-DK',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+    const tracking = s.parcels?.[0]?.pkg_no || s.parcels?.[0]?.id || s.tracking_number || '—';
+    const trackUrl = s.parcels?.[0]?.tracking_link || null;
+    const state = s.state || 'unknown';
+    const stateLabel = {
+      'created':'Oprettet','in_transit':'Under transport','transit':'Under transport',
+      'delivered':'Leveret','returned':'Returneret'
+    }[state] || state;
+    const stateClass = {
+      'created':'created','in_transit':'transit','transit':'transit',
+      'delivered':'delivered','returned':'returned'
+    }[state] || 'unknown';
+
+    return `<tr>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${s.id||'—'}</td>
+      <td><div class="td-name">${name}</div><div class="td-sub">${addr}</div></td>
+      <td style="font-size:12px">${s.product_code||'—'}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${s.reference||'—'}</td>
+      <td>${trackUrl ? `<a href="${trackUrl}" target="_blank" class="tracking-link">${tracking}</a>` : `<span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${tracking}</span>`}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${date}</td>
+      <td>
+        <div class="td-actions">
+          <span class="ship-status ${stateClass}">${stateLabel}</span>
+          <button class="btn btn-ghost btn-sm" onclick="printLabel(${s.id})" title="Hent label">🖨 Label</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function printLabel(id){
+  // Load printers first
+  if(!availablePrinters.length){
+    try {
+      const d = await jsonpShip({ action:'getPrinters' });
+      availablePrinters = Array.isArray(d) ? d : (d.printers||[]);
+    } catch(e) { availablePrinters = []; }
+  }
+
+  // Build printer modal
+  const printerOpts = availablePrinters.length
+    ? availablePrinters.map(p=>`<option value="${p.host_name}|${p.printer}|${p.label_format}">${p.name||p.printer} (${p.host_name})</option>`).join('')
+    : '';
+
+  document.getElementById('modal-box').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">Print label</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label>Label format</label>
+        <select id="pl-fmt">
+          <option value="a4_pdf">A4 PDF</option>
+          <option value="10x19_pdf">10×19 PDF</option>
+        </select>
+      </div>
+      <div style="background:var(--surface-2);border:1px solid var(--border-light);border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--ink-3);line-height:1.6;margin-top:4px">
+        🖨 Label åbnes i en ny fane og sendes direkte til din Mac's print-dialog — vælg selv printer derfra (AirPrint, USB m.m.)
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="doPrintLabel(${id})">🖨 Hent &amp; print label</button>
+    </div>`;
+  openModal();
+}
+
+async function doPrintLabel(id){
+  const fmt = document.getElementById('pl-fmt').value;
+  closeModal();
+  toast('Henter label…');
+  try {
+    const d = await jsonpShip({ action:'getLabel', id });
+    if(!d.label_url){ alert('Ingen label tilgængelig for denne forsendelse'); return; }
+
+    // Fetch the PDF and open print dialog via hidden iframe
+    toast('Åbner print-dialog…');
+    const printWin = window.open(d.label_url, '_blank');
+    if(printWin){
+      // Give it a moment to load then trigger print
+      setTimeout(()=>{
+        try { printWin.print(); } catch(e){ /* browser may block cross-origin print — user prints manually */ }
+      }, 1500);
+    } else {
+      // Popup blocked — fallback: create link
+      const a = document.createElement('a');
+      a.href = d.label_url;
+      a.target = '_blank';
+      a.download = 'label-'+id+'.pdf';
+      a.click();
+    }
+  } catch(e) { alert('Fejl: '+e.message); }
+}
+
+async function openNewShipmentModal(){
+  // Load products if not loaded
+  if(!availableProducts.length){
+    try {
+      const d = await jsonpShip({ action:'getProducts', country:'DK' });
+      availableProducts = Array.isArray(d) ? d : (d.products||[]);
+    } catch(e) { availableProducts = []; }
+  }
+  if(!availablePrinters.length){
+    try {
+      const d = await jsonpShip({ action:'getPrinters' });
+      availablePrinters = Array.isArray(d) ? d : (d.printers||[]);
+    } catch(e) { availablePrinters = []; }
+  }
+
+  // Filter to DK sender only and deduplicate by code
+  const dkProducts = availableProducts
+    .filter(p => !p.sender_country_code || p.sender_country_code === 'DK')
+    .filter((p,i,arr) => arr.findIndex(x=>(x.code||x.product_code)===(p.code||p.product_code)) === i)
+    .sort((a,b)=>{
+      const ca = (a.carrier&&a.carrier.name)||'';
+      const cb2 = (b.carrier&&b.carrier.name)||'';
+      return ca.localeCompare(cb2,'da') || (a.name||'').localeCompare(b.name||'','da');
+    });
+
+  // Group by carrier for optgroup — use string concat to avoid nested template literal issues
+  const pgCarriers = {};
+  dkProducts.forEach(function(p){
+    const cn = (p.carrier&&p.carrier.name)||'Andet';
+    if(!pgCarriers[cn]) pgCarriers[cn] = [];
+    pgCarriers[cn].push(p);
+  });
+
+  let productOpts = '';
+  if(dkProducts.length){
+    Object.keys(pgCarriers).sort().forEach(function(cn){
+      productOpts += '<optgroup label="' + cn + '">';
+      pgCarriers[cn].forEach(function(p){
+        const val = p.code||p.product_code||'';
+        const lbl = p.name||val;
+        productOpts += '<option value="' + val + '">' + lbl + '</option>';
+      });
+      productOpts += '</optgroup>';
+    });
+  } else {
+    productOpts = '<option value="GLSDK_SD">GLS ShopDelivery</option><option value="GLSDK_BP">GLS BusinessParcel</option><option value="DAO_STH">dao daoHOME</option><option value="PDK_MC">PostNord Service Point</option>';
+  }
+
+
+
+  document.getElementById('modal-box').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">Ny forsendelse</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)">Afsender</div>
+        <span style="font-size:11px;color:var(--ink-3);background:var(--surface-2);padding:2px 8px;border-radius:4px">Khaki ApS — pre-udfyldt</span>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Firmanavn</label><input id="sh-sname" value="${SENDER_INFO.name}"></div>
+        <div class="fg"><label>Telefon</label><input id="sh-sphone" value="${SENDER_INFO.phone}"></div>
+      </div>
+      <div class="fg"><label>Adresse</label><input id="sh-saddr" value="${SENDER_INFO.address}"></div>
+      <div class="form-row">
+        <div class="fg"><label>Postnr.</label><input id="sh-szip" value="${SENDER_INFO.zip}"></div>
+        <div class="fg"><label>By</label><input id="sh-scity" value="${SENDER_INFO.city}"></div>
+      </div>
+      <div class="fg"><label>Email</label><input id="sh-semail" type="email" value="${SENDER_INFO.email}"></div>
+
+      <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Modtager</div>
+      <div class="form-row">
+        <div class="fg"><label>Navn</label><input id="sh-rname" placeholder="Modtagers navn"></div>
+        <div class="fg"><label>Telefon</label><input id="sh-rphone" placeholder="+4512345678"></div>
+      </div>
+      <div class="fg"><label>Adresse</label><input id="sh-raddr" placeholder="Vejnavn og nummer"></div>
+      <div class="form-row">
+        <div class="fg"><label>Postnr.</label><input id="sh-rzip" placeholder="2100"></div>
+        <div class="fg"><label>By</label><input id="sh-rcity" placeholder="København Ø"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Land (ISO)</label><input id="sh-rcountry" value="DK" placeholder="DK"></div>
+        <div class="fg"><label>Email</label><input id="sh-remail" type="email" placeholder="kunde@email.dk"></div>
+      </div>
+
+      <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Forsendelse</div>
+      <div class="form-row">
+        <div class="fg"><label>Produkt</label><select id="sh-product">${productOpts}</select></div>
+        <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Reference</label><input id="sh-ref" placeholder="Ordre nr."></div>
+        <div class="fg"><label>Label format</label><select id="sh-fmt"><option value="a4_pdf">A4 PDF</option><option value="10x19_pdf">10×19 PDF</option><option value="zpl">ZPL (label printer)</option></select></div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="submitShipment()">Opret forsendelse</button>
+    </div>`;
+  openModal();
+}
+
+async function submitShipment(){
+  const data = {
+    action: 'createShipment',
+    sender_name:    document.getElementById('sh-sname').value.trim(),
+    sender_address: document.getElementById('sh-saddr').value.trim(),
+    sender_zip:     document.getElementById('sh-szip').value.trim(),
+    sender_city:    document.getElementById('sh-scity').value.trim(),
+    sender_email:   document.getElementById('sh-semail').value.trim(),
+    sender_phone:   document.getElementById('sh-sphone').value.trim(),
+    receiver_name:    document.getElementById('sh-rname').value.trim(),
+    receiver_address: document.getElementById('sh-raddr').value.trim(),
+    receiver_zip:     document.getElementById('sh-rzip').value.trim(),
+    receiver_city:    document.getElementById('sh-rcity').value.trim(),
+    receiver_country: document.getElementById('sh-rcountry').value.trim()||'DK',
+    receiver_email:   document.getElementById('sh-remail').value.trim(),
+    receiver_phone:   document.getElementById('sh-rphone').value.trim(),
+    product_code:  document.getElementById('sh-product').value,
+    weight_grams:  document.getElementById('sh-weight').value,
+    reference:     document.getElementById('sh-ref').value.trim(),
+    label_format:  document.getElementById('sh-fmt').value,
+    printer_host:  '',
+    printer_name:  '',
+    printer_format:''
+  };
+
+  if(!data.receiver_name||!data.receiver_address||!data.receiver_zip||!data.receiver_city){
+    toast('Udfyld modtagerens navn, adresse, postnr. og by'); return;
+  }
+  if(!data.sender_name||!data.sender_address||!data.sender_zip||!data.sender_city){
+    toast('Udfyld afsenderens navn, adresse, postnr. og by'); return;
+  }
+
+  closeModal();
+  toast('Opretter forsendelse…');
+
+  try {
+    const d = await jsonpShip({...data});
+    if(d.error) throw new Error(d.error);
+    toast('Forsendelse oprettet ✓');
+    const labelUrl = d.label_url || d.pdf_uri;
+    if(labelUrl) setTimeout(()=>{
+      const win = window.open(labelUrl,'_blank');
+      if(win) setTimeout(()=>{ try{win.print();}catch(e){} }, 1500);
+    }, 500);
+    shipLoaded = false; // force reload
+    await loadShipments();
+  } catch(e) {
+    toast('Fejl: '+e.message);
+  }
+}
+
+
+// ── FRAGTPRISER ──
+let prisLoaded = false;
+let allProducts = [];
+
+async function loadPriser(){
+  prisLoaded = false; // will be set true after successful load
+  const loading = document.getElementById('pris-loading');
+  const content = document.getElementById('pris-content');
+  if(loading) loading.style.display = 'block';
+  if(content) content.style.display = 'none';
+  try {
+    const d = await jsonpShip({ action:'getProducts', country:'DK' });
+    allProducts = Array.isArray(d) ? d : (d.products || d.shipments || []);
+    // Filter only available products
+    allProducts = allProducts.filter(p => p.available !== false);
+    prisLoaded = true;
+    if(loading) loading.style.display = 'none';
+    if(content) content.style.display = 'block';
+    renderPriser(allProducts);
+  } catch(e) {
+    if(loading) loading.textContent = 'Fejl: ' + e.message;
+  }
+}
+
+function filterPriser(){
+  const q = (document.getElementById('pris-search').value||'').toLowerCase();
+  const filtered = !q ? allProducts : allProducts.filter(p=>{
+    const carrierName = (p.carrier && p.carrier.name) ? p.carrier.name : (p.carrier_name||'');
+    return carrierName.toLowerCase().includes(q) ||
+      (p.name||'').toLowerCase().includes(q) ||
+      (p.code||p.product_code||'').toLowerCase().includes(q);
+  });
+  renderPriser(filtered);
+}
+
+function renderPriser(products){
+  const el = document.getElementById('pris-carriers');
+  if(!products.length){
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">Ingen produkter fundet</div></div>';
+    return;
+  }
+
+  // Group by carrier.name, sort alphabetically
+  const groups = {};
+  products.forEach(p => {
+    const carrier = (p.carrier && p.carrier.name) ? p.carrier.name : (p.carrier_name || 'Andet');
+    if(!groups[carrier]) groups[carrier] = [];
+    groups[carrier].push(p);
+  });
+
+  const sortedCarriers = Object.keys(groups).sort((a,b)=>a.localeCompare(b,'da'));
+
+  el.innerHTML = sortedCarriers.map(carrier => {
+    const prods = groups[carrier]
+      .filter((p,i,arr) => arr.findIndex(x=>(x.code||x.product_code)===(p.code||p.product_code)) === i)
+      .sort((a,b)=>(a.name||'').localeCompare(b.name||'','da'));
+
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <span class="card-title">🚚 ${carrier}</span>
+        <span style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace">${prods.length} produkter</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:30%">Produkt</th>
+            <th style="width:15%">Kode</th>
+            <th style="width:15%">Leveringstid</th>
+            <th style="width:15%">Fra land</th>
+            <th style="width:25%">Vægtintervaller</th>
+          </tr></thead>
+          <tbody>
+            ${prods.map(p => {
+              const transit = p.expected_transit_time || '—';
+              const fromCountry = p.sender_country_code || '—';
+              const weights = (p.weight_intervals||[]).length
+                ? p.weight_intervals.map(w=>w.description).join(', ')
+                : '—';
+              const available = p.available !== false;
+              return `<tr style="${!available?'opacity:.5':''}">
+                <td>
+                  <div class="td-name">${p.name||'—'}</div>
+                  ${!available?'<span class="badge badge-gray" style="margin-top:2px">Ikke tilgængelig</span>':''}
+                </td>
+                <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${p.code||p.product_code||'—'}</span></td>
+                <td style="font-size:12px;color:var(--ink-2)">${transit}</td>
+                <td><span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${fromCountry}</span></td>
+                <td><span style="font-size:11px;color:var(--ink-3)">${weights.length>60?weights.slice(0,57)+'…':weights}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── LOGIN ──
+const ACCESS_CODE = 'dpt68uwe!';
+let loginAttempts = 0;
+
+function doLogin() {
+  const inp = document.getElementById('login-input');
+  const err = document.getElementById('login-err');
+  const val = inp.value;
+  if (val === ACCESS_CODE) {
+    const screen = document.getElementById('login-screen');
+    screen.classList.add('hidden');
+    setTimeout(() => screen.style.display = 'none', 320);
+    sessionStorage.setItem('lager_auth', '1');
+    loginAttempts = 0;
+  } else {
+    loginAttempts++;
+    err.textContent = 'Forkert kode — prøv igen';
+    // Clear the pre-filled value after first failed attempt
+    inp.value = '';
+    inp.placeholder = 'Skriv adgangskode...';
+    inp.focus();
+    setTimeout(() => err.textContent = '', 2500);
+  }
+}
+
+function toggleLoginVis() {
+  const inp = document.getElementById('login-input');
+  const btn = document.getElementById('login-vis-btn');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    inp.type = 'password';
+    btn.textContent = '👁';
+  }
+}
+
+// Auto-unlock if already authenticated this session
+if (sessionStorage.getItem('lager_auth') === '1') {
+  const screen = document.getElementById('login-screen');
+  if (screen) screen.style.display = 'none';
+} else {
+  // Focus the input when page loads
+  window.addEventListener('DOMContentLoaded', () => {
+    const inp = document.getElementById('login-input');
+    if (inp) inp.focus();
+  });
+}
+
+</script>
+
+<!-- ── CLAUDE CHAT ── -->
+<style>
+.ai-fab {
+  position: fixed;
+  bottom: 28px; right: 28px;
+  width: 52px; height: 52px;
+  background: var(--ink);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,.25);
+  z-index: 300;
+  transition: transform .15s, box-shadow .15s;
+  font-size: 22px;
+}
+.ai-fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(0,0,0,.3); }
+.ai-fab .fab-icon { transition: transform .2s; }
+.ai-fab.open .fab-icon { transform: rotate(45deg); }
+
+.ai-panel {
+  position: fixed;
+  bottom: 92px; right: 28px;
+  width: 380px;
+  max-height: 560px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 56px rgba(0,0,0,.18);
+  z-index: 299;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(16px) scale(.97);
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+}
+.ai-panel.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: all;
+}
+.ai-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--ink);
+  border-radius: 14px 14px 0 0;
+}
+.ai-panel-head .ai-avatar {
+  width: 30px; height: 30px;
+  background: rgba(255,255,255,.12);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.ai-panel-head .ai-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -.1px;
+}
+.ai-panel-head .ai-sub {
+  font-size: 10px;
+  color: rgba(255,255,255,.45);
+  margin-top: 1px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+.ai-msg {
+  max-width: 88%;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ai-msg.user {
+  align-self: flex-end;
+  background: var(--ink);
+  color: #fff;
+  padding: 9px 13px;
+  border-radius: 12px 12px 3px 12px;
+}
+.ai-msg.assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 9px 13px;
+  border-radius: 12px 12px 12px 3px;
+  border: 1px solid var(--border-light);
+}
+.ai-msg.thinking {
+  align-self: flex-start;
+  background: var(--surface-2);
+  padding: 9px 13px;
+  border-radius: 12px 12px 12px 3px;
+  border: 1px solid var(--border-light);
+}
+.thinking-dots span {
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--ink-3);
+  border-radius: 50%;
+  margin: 0 2px;
+  animation: td .9s infinite;
+}
+.thinking-dots span:nth-child(2){ animation-delay:.2s }
+.thinking-dots span:nth-child(3){ animation-delay:.4s }
+@keyframes td { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+
+.ai-suggestions {
+  padding: 0 14px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-suggestion {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--white);
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background .1s;
+}
+.ai-suggestion:hover { background: var(--surface-2); border-color: var(--ink-3); }
+
+.ai-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-light);
+  background: var(--surface);
+}
+.ai-input-row textarea {
+  flex: 1;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--ink);
+  resize: none;
+  height: 38px;
+  min-height: 38px;
+  max-height: 100px;
+  line-height: 1.4;
+  overflow-y: auto;
+}
+.ai-input-row textarea:focus { outline: none; border-color: var(--ink); }
+.ai-send {
+  width: 38px; height: 38px;
+  background: var(--ink);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background .1s;
+}
+.ai-send:hover { background: var(--ink-2); }
+.ai-send:disabled { opacity: .4; cursor: default; }
+
+@media(max-width:480px){
+  .ai-panel { width: calc(100vw - 32px); right: 16px; bottom: 80px; }
+  .ai-fab { right: 16px; bottom: 16px; }
+}
+</style>
+
+<button class="ai-fab" id="ai-fab" onclick="toggleAI()" title="Spørg din lager-assistent" aria-label="Åbn AI-assistent">
+  <span class="fab-icon">✦</span>
+</button>
+
+<div class="ai-panel" id="ai-panel" aria-label="AI lager-assistent">
+  <div class="ai-panel-head">
+    <div class="ai-avatar">✦</div>
+    <div>
+      <div class="ai-title">Lager-assistent</div>
+      <div class="ai-sub">Kender dit aktuelle lager</div>
+    </div>
+  </div>
+  <div class="ai-messages" id="ai-messages">
+    <div class="ai-msg assistant">Hej! Jeg kender dit lager og kan hjælpe dig med overblik, planlægning og opstilling. Hvad vil du vide?</div>
+  </div>
+  <div class="ai-suggestions" id="ai-suggestions">
+    <button class="ai-suggestion" onclick="askSuggestion('Hvad løber tør snart?')">Hvad løber tør?</button>
+    <button class="ai-suggestion" onclick="askSuggestion('Find aktuelle listepriser for GLS, dao og PostNord i Danmark og vis dem i en tabel')">💶 Fragtpriser</button>
+    <button class="ai-suggestion" onclick="askSuggestion('Sammenlign GLS og dao priser og leveringstider i Danmark')">GLS vs dao</button>
+    <button class="ai-suggestion" onclick="askSuggestion('Hvordan bør jeg organisere mine rum mest overskueligt?')">Organiser rum</button>
+  </div>
+  <div class="ai-input-row">
+    <textarea id="ai-input" placeholder="Stil et spørgsmål om dit lager…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAI()}" oninput="autoResize(this)"></textarea>
+    <button class="ai-send" id="ai-send" onclick="sendAI()" aria-label="Send">→</button>
+  </div>
+</div>
+
+<script>
+let aiOpen = false;
+let aiHistory = [];
+let aiThinking = false;
+
+function toggleAI(){
+  aiOpen = !aiOpen;
+  document.getElementById('ai-fab').classList.toggle('open', aiOpen);
+  document.getElementById('ai-panel').classList.toggle('open', aiOpen);
+  // mobile nav AI button highlight
+  const mnavAI = document.getElementById('mnav-ai');
+  if(mnavAI) mnavAI.classList.toggle('active', aiOpen);
+  if(aiOpen) setTimeout(()=>document.getElementById('ai-input').focus(), 220);
+}
+
+function autoResize(ta){
+  ta.style.height = '38px';
+  ta.style.height = Math.min(ta.scrollHeight, 100)+'px';
+}
+
+function buildContext(){
+  const roomList = rooms.map(r=>{
+    const cnt = items.filter(i=>i.room===r.id).length;
+    const qty = items.filter(i=>i.room===r.id).reduce((s,i)=>s+parseInt(i.qty||0),0);
+    return `- ${r.name}${r.size?' ('+r.size+')':''}: ${cnt} varenr., ${qty} stk.${r.desc?', '+r.desc:''}`;
+  }).join('\n');
+
+  const itemList = items.map(i=>{
+    const r = rooms.find(r=>r.id===i.room);
+    const low = parseInt(i.qty||0) < parseInt(i.minQty||0);
+    return `- ${i.name} | Kategori: ${i.cat} | Rum: ${r?r.name:'?'} | Placering: ${i.shelf} | Antal: ${i.qty} | Min: ${i.minQty}${i.sku?' | SKU: '+i.sku:''}${low?' ⚠ LAV BEHOLDNING':''}`;
+  }).join('\n');
+
+  return `Du er en hjælpsom lagerassistent for en dansk bordbensvirksomhed (SESU bordben). Svar altid på dansk. Vær konkret og præcis.
+
+Du har adgang til web search. Brug det aktivt når brugeren spørger om:
+- Fragtpriser (GLS, dao, PostNord, Bring, DHL osv.) — søg efter aktuelle danske listepriser
+- Leveringstider
+- Sammenligning af fragtfirmaer
+- Andre emner der kræver opdateret information
+
+Når du søger efter priser, søg på dansk og presenter resultaterne overskueligt i en tabel med fragtfirma, produkt og pris.
+
+AKTUELT LAGER:
+
+Rum (${rooms.length}):
+${roomList||'Ingen rum'}
+
+Varer (${items.length}):
+${itemList||'Ingen varer'}`;
+}
+
+function askSuggestion(q){
+  document.getElementById('ai-suggestions').style.display='none';
+  document.getElementById('ai-input').value = q;
+  sendAI();
+}
+
+async function sendAI(){
+  if(aiThinking) return;
+  const inp = document.getElementById('ai-input');
+  const txt = inp.value.trim();
+  if(!txt) return;
+
+  inp.value = '';
+  inp.style.height = '38px';
+  document.getElementById('ai-suggestions').style.display='none';
+
+  aiHistory.push({role:'user', content: txt});
+  renderAIMessages();
+
+  const thinkEl = document.createElement('div');
+  thinkEl.className = 'ai-msg thinking';
+  thinkEl.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+  document.getElementById('ai-messages').appendChild(thinkEl);
+  scrollAI();
+
+  aiThinking = true;
+  document.getElementById('ai-send').disabled = true;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: buildContext(),
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: aiHistory
+      })
+    });
+    const data = await res.json();
+    const reply = data.content?.map(c=>c.type==='text'?c.text:'').filter(Boolean).join('') || 'Kunne ikke hente svar.';
+    thinkEl.remove();
+    aiHistory.push({role:'assistant', content: reply});
+    renderAIMessages();
+  } catch(e) {
+    thinkEl.remove();
+    aiHistory.push({role:'assistant', content:'Fejl: '+e.message});
+    renderAIMessages();
+  }
+
+  aiThinking = false;
+  document.getElementById('ai-send').disabled = false;
+  inp.focus();
+}
+
+function renderAIMessages(){
+  const el = document.getElementById('ai-messages');
+  const welcome = '<div class="ai-msg assistant">Hej! Jeg kender dit lager og kan hjælpe dig med overblik, planlægning og opstilling. Hvad vil du vide?</div>';
+  el.innerHTML = welcome + aiHistory.map(m=>`
+    <div class="ai-msg ${m.role}">${m.content.replace(/\n/g,'<br>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>')}</div>
+  `).join('');
+  scrollAI();
+}
+
+function scrollAI(){
+  const el = document.getElementById('ai-messages');
+  el.scrollTop = el.scrollHeight;
+}
+</script>
+
+<!-- DEBUG TOOL -->
+<div id="debug-panel" style="display:none;position:fixed;bottom:100px;left:20px;right:20px;max-width:600px;background:#fff;border:2px solid #E24B4A;border-radius:10px;padding:1rem;z-index:500;box-shadow:0 8px 32px rgba(0,0,0,.2);font-family:'IBM Plex Mono',monospace;font-size:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <strong style="font-size:13px;font-family:'Inter',sans-serif">Debug — Shipmondo API svar</strong>
+    <button onclick="document.getElementById('debug-panel').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:#999">✕</button>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    <button onclick="debugCall('getBalance')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getBalance</button>
+    <button onclick="debugCall('getShipments')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getShipments</button>
+    <button onclick="debugCall('getProducts')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getProducts</button>
+    <button onclick="debugCall('getPrinters')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getPrinters</button>
+  </div>
+  <pre id="debug-out" style="background:#f8f8f8;border:1px solid #eee;border-radius:6px;padding:10px;overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;font-size:11px;color:#333">Klik en knap for at teste...</pre>
+</div>
+<button onclick="document.getElementById('debug-panel').style.display='block'" style="position:fixed;bottom:100px;left:20px;background:#E24B4A;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;z-index:499;font-family:'Inter',sans-serif;font-weight:600">🔧 Debug API</button>
+
+<script>
+async function debugCall(action) {
+  const out = document.getElementById('debug-out');
+  out.textContent = 'Henter ' + action + '…';
+  try {
+    const d = await jsonpShip({ action });
+    out.textContent = JSON.stringify(d, null, 2);
+  } catch(e) {
+    out.textContent = 'FEJL: ' + e.message;
+  }
+}
+</script>
+
+</body>
+</html>
