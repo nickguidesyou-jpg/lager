@@ -1278,9 +1278,20 @@ async function loadSesuPrices() {
   try {
     const d = await jsonpShipSlow({ action:'getSesuPrices' });
     if(d && !d.error && Object.keys(d).length > 0) {
-      sesuPrices = d;
+      // d may be {sku: {price, name}} (v2) or {sku: price} (v1 cached)
+      sesuPrices = {};
+      sesuByName = {};
+      for(const sku in d){
+        const v = d[sku];
+        if(typeof v === 'object' && v !== null){
+          sesuPrices[sku] = v.price;
+          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name };
+        } else {
+          sesuPrices[sku] = v; // v1 fallback
+        }
+      }
       sesuPricesLoaded = true;
-      if(statusEl) statusEl.textContent = '✓ ' + Object.keys(d).length + ' priser';
+      if(statusEl) statusEl.textContent = '✓ ' + Object.keys(sesuPrices).length + ' priser';
       renderItems();
     } else {
       if(statusEl) statusEl.textContent = '— fejl';
@@ -1289,6 +1300,25 @@ async function loadSesuPrices() {
     if(statusEl) statusEl.textContent = '— timeout';
   }
   if(btn) btn.disabled = false;
+}
+
+function normName(s){ return (s||'').toLowerCase().replace(/[^a-zæøå0-9]/g,' ').replace(/\s+/g,' ').trim(); }
+
+function findSesuPrice(itemName, itemSku){
+  // 1) exact SKU match
+  const sku = (itemSku||'').trim();
+  if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], how:'sku' };
+  // 2) name-based match
+  const nn = normName(itemName);
+  if(!nn) return null;
+  // exact normalized name
+  if(sesuByName[nn]) return { price: sesuByName[nn].price, sesuName: sesuByName[nn].name, how:'name' };
+  // substring match: warehouse name contains sesu name or vice versa
+  for(const sn in sesuByName){
+    if(sn.length > 3 && (nn.includes(sn) || sn.includes(nn)))
+      return { price: sesuByName[sn].price, sesuName: sesuByName[sn].name, how:'name' };
+  }
+  return null;
 }
 
 function jsonpShipSlow(params){
@@ -1443,14 +1473,15 @@ function renderItems(){
     const checked = selectedItems.has(i.id) ? 'checked' : '';
     const qty = parseInt(i.qty||0);
 
-    // Match price by SKU
-    const sku = (i.sku||'').trim();
-    const unitPrice = sku && sesuPrices[sku] !== undefined ? sesuPrices[sku] : null;
+    // Match price by SKU, then by name
+    const match = sesuPricesLoaded ? findSesuPrice(i.name, i.sku) : null;
+    const unitPrice = match ? match.price : null;
     const lineValue = unitPrice !== null ? unitPrice * qty : null;
     if(lineValue !== null){ totalValue += lineValue; valuedCount++; }
 
+    const priceTitle = match && match.how==='name' ? ` title="Matchet på navn: ${match.sesuName||''}"` : '';
     const priceCell = unitPrice !== null
-      ? `<td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${unitPrice.toLocaleString('da-DK')} kr.</td>`
+      ? `<td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600"${priceTitle}>${unitPrice.toLocaleString('da-DK')} kr.${match.how==='name'?'<span style="font-size:9px;color:var(--ink-3);margin-left:3px">≈</span>':''}</td>`
       : `<td style="color:var(--ink-3);font-size:11px">${sesuPricesLoaded?'—':'…'}</td>`;
 
     const valueCell = lineValue !== null
@@ -2115,6 +2146,7 @@ let prisLoaded = false;
 let allProducts = [];
 let allPriceStats = {};
 let sesuPrices = {};
+let sesuByName = {};
 let sesuPricesLoaded = false;
 
 async function loadPriser(){
