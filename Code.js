@@ -2,12 +2,6 @@ var SHIPMONDO_USER = '270c71ce-28a2-47ff-bc06-b73a972d5cc0';
 var SHIPMONDO_KEY  = '6bb70c43-5957-43ec-9264-ccaaec14351f';
 var BASE_URL = 'https://app.shipmondo.com/api/public/v3/';
 
-// KØR DENNE ÉN GANG FRA APPS SCRIPT EDITOREN — erstat sk-ant-... med din nøgle
-function setupAnthropicKey() {
-  PropertiesService.getScriptProperties().setProperty('ANTHROPIC_KEY', 'sk-ant-ERSTAT-MED-DIN-NØGLE');
-  Logger.log('ANTHROPIC_KEY sat. Slet nu denne funktion og push igen.');
-}
-
 function getProps() {
   return PropertiesService.getScriptProperties();
 }

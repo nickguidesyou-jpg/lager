@@ -1231,9 +1231,10 @@ function showErr(m){
 }
 
 function jsonp(params){
+  const token = sessionStorage.getItem('lager_token') || '';
   return new Promise((resolve, reject) => {
     const cb = 'cb_'+uid();
-    const url = API+'?'+new URLSearchParams({...params, callback:cb});
+    const url = API+'?'+new URLSearchParams({...params, token, callback:cb});
     const s = document.createElement('script');
     const timer = setTimeout(()=>{ cleanup(); reject(new Error('Timeout — tjek Apps Script URL og deployment')); }, 12000);
     window[cb] = (data) => { cleanup(); resolve(data); };
