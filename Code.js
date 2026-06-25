@@ -1,9 +1,15 @@
-var SHIPMONDO_USER = '270c71ce-28a2-47ff-bc06-b73a972d5cc0';
-var SHIPMONDO_KEY  = '6bb70c43-5957-43ec-9264-ccaaec14351f';
 var BASE_URL = 'https://app.shipmondo.com/api/public/v3/';
 
 function getProps() {
   return PropertiesService.getScriptProperties();
+}
+
+// Kør denne funktion én gang manuelt i Apps Script-editoren for at sætte credentials
+function initShipmondoCreds() {
+  var props = getProps();
+  props.setProperty('SHIPMONDO_USER', '270c71ce-28a2-47ff-bc06-b73a972d5cc0');
+  props.setProperty('SHIPMONDO_KEY',  '6bb70c43-5957-43ec-9264-ccaaec14351f');
+  Logger.log('Credentials gemt i Script Properties');
 }
 
 function validToken(p) {
@@ -100,7 +106,11 @@ function verifyLogin(p) {
 }
 
 function shipmondoRequest(method, endpoint, payload) {
-  var auth = Utilities.base64Encode(SHIPMONDO_USER + ':' + SHIPMONDO_KEY);
+  var props = getProps();
+  var user = props.getProperty('SHIPMONDO_USER');
+  var key  = props.getProperty('SHIPMONDO_KEY');
+  if (!user || !key) throw new Error('SHIPMONDO_USER og SHIPMONDO_KEY mangler i Script Properties');
+  var auth = Utilities.base64Encode(user + ':' + key);
   var options = {
     method: method,
     headers: {

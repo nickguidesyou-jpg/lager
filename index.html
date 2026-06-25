@@ -1862,15 +1862,18 @@ function renderShipments(ships){
     const date = s.created_at ? new Date(s.created_at).toLocaleDateString('da-DK',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
     const tracking = s.parcels?.[0]?.pkg_no || s.pkg_no || s.tracking_number || '—';
     const carrier  = (s.carrier_code || '').toLowerCase();
+    const safeTracking = encodeURIComponent(tracking);
+    const fallbackLink = s.parcels?.[0]?.tracking_link || null;
+    const safeLink = (fallbackLink && /^https:\/\//i.test(fallbackLink)) ? fallbackLink : null;
     const trackUrl = tracking !== '—' ? ({
-      pdk:   `https://tracking.postnord.com/en/?id=${tracking}`,
-      gls:   `https://gls-group.eu/track/${tracking}`,
-      dao:   `https://www.dao.as/track?packageNumber=${tracking}`,
-      bring: `https://tracking.bring.com/tracking/${tracking}`,
-      dhl:   `https://www.dhl.com/dk-en/home/tracking.html?tracking-id=${tracking}`,
-      ups:   `https://www.ups.com/track?tracknum=${tracking}`,
-      dfm:   `https://www.dfm.dk/spoer-din-pakke/?q=${tracking}`,
-    }[carrier] || s.parcels?.[0]?.tracking_link || null) : null;
+      pdk:   `https://tracking.postnord.com/en/?id=${safeTracking}`,
+      gls:   `https://gls-group.eu/track/${safeTracking}`,
+      dao:   `https://www.dao.as/track?packageNumber=${safeTracking}`,
+      bring: `https://tracking.bring.com/tracking/${safeTracking}`,
+      dhl:   `https://www.dhl.com/dk-en/home/tracking.html?tracking-id=${safeTracking}`,
+      ups:   `https://www.ups.com/track?tracknum=${safeTracking}`,
+      dfm:   `https://www.dfm.dk/spoer-din-pakke/?q=${safeTracking}`,
+    }[carrier] || safeLink) : null;
     const state = s.state || 'created';
     const stateLabel = {
       'created':'Oprettet','in_transit':'Under transport','transit':'Under transport',
