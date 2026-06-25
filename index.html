@@ -1312,16 +1312,18 @@ async function loadSesuPrices() {
       // d may be {sku: {price, name}} (v2) or {sku: price} (v1 cached)
       sesuPrices = {};
       sesuByName = {};
+      sesuUrls = {};
       sesuProducts = [];
       for(const sku in d){
         const v = d[sku];
         if(typeof v === 'object' && v !== null){
           sesuPrices[sku] = v.price;
-          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name };
-          sesuProducts.push({ sku, price: v.price, name: v.name || sku });
+          if(v.url) sesuUrls[sku] = v.url;
+          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name, url: v.url || '' };
+          sesuProducts.push({ sku, price: v.price, name: v.name || sku, url: v.url || '' });
         } else {
           sesuPrices[sku] = v;
-          sesuProducts.push({ sku, price: v, name: sku });
+          sesuProducts.push({ sku, price: v, name: sku, url: '' });
         }
       }
       sesuProducts.sort((a,b)=>a.name.localeCompare(b.name,'da'));
@@ -1369,11 +1371,11 @@ function productCategory(n){
 function findSesuPrice(itemName, itemSku){
   // 1) exact SKU match
   const sku = (itemSku||'').trim();
-  if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], how:'sku' };
+  if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], url: sesuUrls[sku]||'', how:'sku' };
   // 2) name-based match via word overlap (Jaccard ≥ 0.28)
   const nn = normName(itemName);
   if(!nn) return null;
-  if(sesuByName[nn]) return { price: sesuByName[nn].price, sesuName: sesuByName[nn].name, how:'name' };
+  if(sesuByName[nn]) return { price: sesuByName[nn].price, url: sesuByName[nn].url||'', sesuName: sesuByName[nn].name, how:'name' };
   const itemCat = productCategory(itemName);
   let bestScore = 0, bestEntry = null;
   for(const sn in sesuByName){
@@ -1382,7 +1384,7 @@ function findSesuPrice(itemName, itemSku){
     const score = wordScore(nn, sn);
     if(score > bestScore){ bestScore = score; bestEntry = sesuByName[sn]; }
   }
-  if(bestScore >= 0.28 && bestEntry) return { price: bestEntry.price, sesuName: bestEntry.name, how:'name' };
+  if(bestScore >= 0.28 && bestEntry) return { price: bestEntry.price, url: bestEntry.url||'', sesuName: bestEntry.name, how:'name' };
   return null;
 }
 
@@ -1561,6 +1563,7 @@ function renderItems(){
     if(lineValue !== null){ totalValue += lineValue; valuedCount++; }
 
     const priceTitle = match && match.how==='name' ? ` title="Matchet på navn: ${match.sesuName||''}"` : '';
+    const sesuUrl = match && match.url ? match.url : null;
     const sesuOpts = sesuProducts.length
       ? `<option value="">— vælg sesu.dk produkt —</option>` + sesuProducts.map(p=>`<option value="${esc(p.sku)}">${esc(p.name)} (${p.price} kr.)</option>`).join('')
       : '';
@@ -1595,6 +1598,7 @@ function renderItems(){
       <td>
         <div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="showQR('${i.id}')" title="QR-kode">⊞</button>
+          ${sesuUrl ? `<button class="btn btn-ghost btn-sm" onclick="showSesuQR('${encodeURIComponent(sesuUrl)}','${esc(i.name)}')" title="sesu.dk QR-kode" style="font-size:11px;padding:2px 5px">🏪</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
           <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
         </div>
@@ -2309,6 +2313,7 @@ let allProducts = [];
 let allPriceStats = {};
 let sesuPrices = {};
 let sesuByName = {};
+let sesuUrls = {};   // sku → sesu.dk product URL
 let sesuProducts = []; // [{sku, price, name}] sorted by name
 let sesuPricesLoaded = false;
 
@@ -2567,6 +2572,28 @@ function showQR(id){
       <div style="font-size:12px;color:var(--ink-3);margin-top:8px;font-family:'IBM Plex Mono',monospace">${i.shelf}${r?' · '+r.name:''}</div>
       <div style="margin-top:12px">
         <a href="${qrUrl}" download="qr-${i.name}.png" class="btn btn-primary btn-sm">↓ Download</a>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Luk</button>
+    </div>`;
+  openModal();
+}
+
+function showSesuQR(encodedUrl, name){
+  const url = decodeURIComponent(encodedUrl);
+  const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(url);
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">sesu.dk — ${name}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center">
+      <img src="${qrUrl}" class="qr-img" width="220" height="220" alt="QR sesu.dk">
+      <div style="font-size:11px;color:var(--ink-3);margin-top:8px;word-break:break-all">${url}</div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+        <a href="${url}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Åbn sesu.dk</a>
+        <a href="${qrUrl}" download="qr-sesu-${name}.png" class="btn btn-sm">↓ Download QR</a>
       </div>
     </div>
     <div class="modal-foot">

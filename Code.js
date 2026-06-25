@@ -244,48 +244,46 @@ function getProducts(p) {
 
 function getSesuPrices() {
   var cache = CacheService.getScriptCache();
-  var cached = cache.get('sesu_prices_v3');
+  var cached = cache.get('sesu_prices_v4');
   if (cached) return JSON.parse(cached);
 
   var products = {};
-  var fullPattern = /data-gtm4wp_product_data=&quot;\{([^"]+)\}&quot;/g;
-  var skuPricePattern = /&quot;sku&quot;:&quot;([^&]*)&quot;,&quot;price&quot;:([0-9.]+)/;
-  var namePattern = /&quot;item_name&quot;:&quot;([^&]*)&quot;/;
 
   for (var page = 1; page <= 12; page++) {
-    var url = 'https://sesu.dk/shop/page/' + page + '/';
-    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    var pageUrl = 'https://sesu.dk/shop/page/' + page + '/';
+    var res = UrlFetchApp.fetch(pageUrl, { muteHttpExceptions: true });
     var html = res.getContentText();
     if (res.getResponseCode() !== 200 || html.indexOf('sku&quot;') === -1) break;
 
-    // Extract full product blobs to get both sku+name+price
-    // Attribute format: data-gtm4wp_product_data="{&quot;...&quot;}"
-    var blobs = html.match(/data-gtm4wp_product_data="\{[^"]+\}"/g) || [];
-    for (var i = 0; i < blobs.length; i++) {
-      var blob = blobs[i];
-      var mSku = blob.match(/&quot;sku&quot;:&quot;([^&]*)&quot;/);
-      var mPrice = blob.match(/&quot;price&quot;:([0-9.]+)/);
-      var mName = blob.match(/&quot;item_name&quot;:&quot;([^&]*)&quot;/);
+    // Split by product <li> so each chunk contains one product's href + GTM data
+    var chunks = html.split('<li class="product');
+    for (var i = 1; i < chunks.length; i++) {
+      var chunk = chunks[i];
+      var mSku   = chunk.match(/&quot;sku&quot;:&quot;([^&]*)&quot;/);
+      var mPrice = chunk.match(/&quot;price&quot;:([0-9.]+)/);
+      var mName  = chunk.match(/&quot;item_name&quot;:&quot;([^&]*)&quot;/);
+      var mUrl   = chunk.match(/href="(https:\/\/sesu\.dk\/[^"]+)"/);
       if (!mSku || !mPrice) continue;
-      var sku = mSku[1].trim();
+      var sku   = mSku[1].trim();
       var price = parseFloat(mPrice[1]);
-      var name = mName ? mName[1] : '';
+      var name  = mName ? mName[1] : '';
+      var url   = mUrl ? mUrl[1] : '';
       if (sku && !isNaN(price)) {
-        products[sku] = { price: price, name: name };
+        products[sku] = { price: price, name: name, url: url };
       }
     }
 
-    // Fallback: also grab any sku+price not caught by blob pattern
+    // Fallback: any sku+price not caught above (no <li class="product" split available)
     var fallbacks = html.match(/sku&quot;:&quot;([^&]*)&quot;,&quot;price&quot;:([0-9.]+)/g) || [];
     for (var j = 0; j < fallbacks.length; j++) {
       var m = fallbacks[j].match(/sku&quot;:&quot;([^&]*)&quot;,&quot;price&quot;:([0-9.]+)/);
       if (m && m[1] && !products[m[1].trim()]) {
-        products[m[1].trim()] = { price: parseFloat(m[2]), name: '' };
+        products[m[1].trim()] = { price: parseFloat(m[2]), name: '', url: '' };
       }
     }
   }
 
-  cache.put('sesu_prices_v3', JSON.stringify(products), 21600);
+  cache.put('sesu_prices_v4', JSON.stringify(products), 21600);
   return products;
 }
 
