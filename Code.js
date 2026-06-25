@@ -211,9 +211,9 @@ function getMonthlyHistory() {
 }
 
 function getBalance() {
-  var bal = shipmondoRequest('GET', 'account_balance');
-  if (bal && bal.balance !== undefined) {
-    return { balance: bal.balance, currency: bal.currency || 'DKK' };
+  var bal = shipmondoRequest('GET', 'account/balance');
+  if (bal && bal.amount !== undefined) {
+    return { balance: bal.amount, currency: bal.currency_code || 'DKK' };
   }
   return { balance: null, currency: 'DKK' };
 }
