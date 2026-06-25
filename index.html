@@ -1306,22 +1306,40 @@ async function loadSesuPrices() {
   if(btn) btn.disabled = false;
 }
 
-function normName(s){ return (s||'').toLowerCase().replace(/[^a-zæøå0-9]/g,' ').replace(/\s+/g,' ').trim(); }
+// Normalize: lowercase, strip punctuation, expand kobber→copper so Danish matches English
+const NAME_XLAT = { kobber:'copper', sort:'black', hvid:'white', guld:'gold', sort:'black', stål:'steel', rund:'round' };
+function normName(s){
+  return (s||'').toLowerCase()
+    .replace(/[^a-zæøå0-9]/g,' ')
+    .split(' ').map(w => NAME_XLAT[w] || w).join(' ')
+    .replace(/(\d+)\s*cm\b/g,'$1cm')   // "71 cm" → "71cm"
+    .replace(/\s+/g,' ').trim();
+}
+
+function wordScore(a, b){
+  const SKIP = new Set(['og','en','et','af','til','med','fra','for','cm','mm']);
+  const wa = new Set(a.split(' ').filter(w=>w.length>1 && !SKIP.has(w)));
+  const wb = new Set(b.split(' ').filter(w=>w.length>1 && !SKIP.has(w)));
+  let common = 0;
+  wa.forEach(w=>{ if(wb.has(w)) common++; });
+  const union = wa.size + wb.size - common;
+  return union > 0 ? common / union : 0;
+}
 
 function findSesuPrice(itemName, itemSku){
   // 1) exact SKU match
   const sku = (itemSku||'').trim();
   if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], how:'sku' };
-  // 2) name-based match
+  // 2) name-based match via word overlap (Jaccard ≥ 0.28, min 2 common words)
   const nn = normName(itemName);
   if(!nn) return null;
-  // exact normalized name
   if(sesuByName[nn]) return { price: sesuByName[nn].price, sesuName: sesuByName[nn].name, how:'name' };
-  // substring match: warehouse name contains sesu name or vice versa
+  let bestScore = 0, bestEntry = null;
   for(const sn in sesuByName){
-    if(sn.length > 3 && (nn.includes(sn) || sn.includes(nn)))
-      return { price: sesuByName[sn].price, sesuName: sesuByName[sn].name, how:'name' };
+    const score = wordScore(nn, sn);
+    if(score > bestScore){ bestScore = score; bestEntry = sesuByName[sn]; }
   }
+  if(bestScore >= 0.28 && bestEntry) return { price: bestEntry.price, sesuName: bestEntry.name, how:'name' };
   return null;
 }
 
