@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
 <meta charset="UTF-8">
-<link rel="canonical" href="https://mf7rt9rysb-design.github.io/lager/">
+<link rel="canonical" href="https://nickguidesyou-jpg.github.io/lager/">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SESU Lagersystem</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -871,7 +871,7 @@ tbody tr:hover td { background: var(--surface); }
     <div class="sidebar-logo">
       <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" alt="SESU logo" style="width:52px;height:52px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px">
       <div class="wordmark">Lagersystem</div>
-      <div class="sub">mf7rt9rysb-design.github.io/lager</div>
+      <div class="sub">nickguidesyou-jpg.github.io/lager</div>
     </div>
     <div class="sidebar-search">
       <div class="sidebar-search-wrap">
@@ -901,6 +901,10 @@ tbody tr:hover td { background: var(--surface); }
       <div class="sync-row">
         <div class="dot load" id="dot"></div>
         <span class="sync-text" id="sync-lbl">Forbinder…</span>
+      </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+        <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:4px">Shipmondo balance</div>
+        <div id="ship-balance" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:rgba(255,255,255,.6)">—</div>
       </div>
     </div>
   </aside>
@@ -1449,6 +1453,8 @@ function filterNavSearch(q) {
 
 document.querySelector('#tab-oversigt').classList.add('active');
 loadAll();
+loadBalance();
+setInterval(loadBalance, 60000);
 
 
 // ── SHIPMONDO ──
@@ -1788,6 +1794,25 @@ async function submitShipment(){
   }
 }
 
+
+// ── BALANCE ──
+async function loadBalance(){
+  try {
+    const d = await jsonpShip({ action:'getBalance' });
+    const el = document.getElementById('ship-balance');
+    if(!el) return;
+    if(d && (d.balance !== undefined || d.amount !== undefined)){
+      const amt = d.balance ?? d.amount;
+      el.textContent = parseFloat(amt).toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.';
+      el.style.color = parseFloat(amt) < 100 ? '#FF6B6B' : 'rgba(255,255,255,.85)';
+    } else if(d && d.error){
+      el.textContent = 'Fejl';
+    }
+  } catch(e) {
+    const el = document.getElementById('ship-balance');
+    if(el) el.textContent = 'Fejl';
+  }
+}
 
 // ── FRAGTPRISER ──
 let prisLoaded = false;
