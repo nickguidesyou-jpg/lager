@@ -1154,25 +1154,24 @@ function renderOverview(){
   const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
   const cats = [...new Set(items.map(i=>i.cat))].length;
 
-  let balanceHtml = '';
-  if(shipBalanceAmt !== null){
-    if(typeof shipBalanceAmt === 'number'){
-      const balFmt = shipBalanceAmt.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2});
-      const balColor = shipBalanceAmt < 100 ? 'var(--red)' : 'var(--ink)';
-      const balClass = shipBalanceAmt < 100 ? 'red' : 'green';
-      balanceHtml = `<div class="stat-card ${balClass}">
-        <div class="stat-label">Shipmondo balance</div>
-        <div class="stat-value" style="font-size:20px;color:${balColor}">${balFmt}</div>
-        <div class="stat-detail">kr. til rådighed</div>
+  const MONTHS = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+  let monthlyHtml = '';
+  if (shipMonthlyStats) {
+    const m = shipMonthlyStats;
+    const label = MONTHS[(m.month - 1)] + ' ' + m.year;
+    const avgFmt = m.month_avg.toLocaleString('da-DK', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const totalFmt = m.month_total.toLocaleString('da-DK', {minimumFractionDigits:2, maximumFractionDigits:2});
+    monthlyHtml = `
+      <div class="stat-card blue">
+        <div class="stat-label">Forsendelser — ${label}</div>
+        <div class="stat-value">${String(m.month_count).padStart(2,'0')}</div>
+        <div class="stat-detail">${totalFmt} kr. i alt</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Gns. fragtpris — ${label}</div>
+        <div class="stat-value" style="font-size:20px">${avgFmt}</div>
+        <div class="stat-detail">kr. per forsendelse</div>
       </div>`;
-    } else {
-      // Unknown structure — show raw JSON for debugging
-      balanceHtml = `<div class="stat-card">
-        <div class="stat-label">Shipmondo balance</div>
-        <div class="stat-value" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace;word-break:break-all">${JSON.stringify(shipBalanceAmt).slice(0,120)}</div>
-        <div class="stat-detail">ukendt format</div>
-      </div>`;
-    }
   }
 
   document.getElementById('stats-grid').innerHTML = `
@@ -1196,7 +1195,7 @@ function renderOverview(){
       <div class="stat-value" style="color:${low.length?'var(--red)':'var(--ink)'}">${String(low.length).padStart(2,'0')}</div>
       <div class="stat-detail">${low.length?'kræver genbestilling':'alt over minimum'}</div>
     </div>
-    ${balanceHtml}`;
+    ${monthlyHtml}`;
 
   const rEl = document.getElementById('ov-rooms');
   rEl.innerHTML = rooms.length ? rooms.map(r=>{
@@ -1476,11 +1475,13 @@ function filterNavSearch(q) {
 document.querySelector('#tab-oversigt').classList.add('active');
 loadAll();
 loadBalance();
+loadMonthlyStats();
 setInterval(loadBalance, 60000);
+setInterval(loadMonthlyStats, 300000);
 
 
 // ── SHIPMONDO ──
-const SHIP_API = 'https://script.google.com/macros/s/AKfycbwLeec725xXMint1S5tGrt4jDfYCOj2b96FIJnw8JF4HINtWrJaE7JMzgTsb453z1jdKQ/exec';
+const SHIP_API = 'https://script.google.com/macros/s/AKfycbwtLFUm0lMDMg8arsAtYPR8O_rz7iTN78-c2ubCkcGLnnYGmPhtxXox1JIDWLkLkMNSjQ/exec';
 let shipLoaded = false;
 let shipPage = 1;
 let shipSearchTimer = null;
@@ -1819,6 +1820,7 @@ async function submitShipment(){
 
 // ── BALANCE ──
 let shipBalanceAmt = null;
+let shipMonthlyStats = null;
 
 async function loadBalance(){
   const sideEl = document.getElementById('ship-balance');
@@ -1842,6 +1844,16 @@ async function loadBalance(){
   } catch(e) {
     if(sideEl) sideEl.textContent = 'Fejl';
   }
+}
+
+async function loadMonthlyStats() {
+  try {
+    const d = await jsonpShip({ action: 'getMonthlyStats' });
+    if (d && d.month_count !== undefined) {
+      shipMonthlyStats = d;
+      renderOverview();
+    }
+  } catch(e) {}
 }
 
 // ── FRAGTPRISER ──
