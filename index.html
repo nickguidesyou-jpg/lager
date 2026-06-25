@@ -1227,7 +1227,7 @@ function sync(s, m){
 function showErr(m){
   const b=document.getElementById('err-box');
   b.style.display = m ? 'block' : 'none';
-  if(m) b.innerHTML = m;
+  if(m) b.textContent = m;
 }
 
 function jsonp(params){
@@ -1259,13 +1259,14 @@ async function loadAll(quiet){
     if(!autoTimer) autoTimer = setInterval(()=>loadAll(true), 30000);
   } catch(e) {
     sync('err','Fejl');
-    showErr('<strong>Forbindelsesfejl:</strong> '+e.message+'<br>Tjek at Apps Script er deployed med adgang sat til <strong>"Alle"</strong> og at du har lavet <strong>ny version</strong>.');
+    showErr('Forbindelsesfejl: '+e.message+' — Tjek at Apps Script er deployed med adgang sat til "Alle" og at du har lavet ny version.');
   }
 }
 
 function renderAll(){ renderOverview(); renderItems(); renderRooms(); }
 
-function catBadge(cat){ return `<span class="badge ${BADGE[cat]||'badge-gray'}">${cat}</span>`; }
+function catBadge(cat){ return `<span class="badge ${BADGE[cat]||'badge-gray'}">${esc(cat)}</span>`; }
+function esc(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
 
 function renderOverview(){
   const tq = items.reduce((s,i)=>s+parseInt(i.qty||0),0);
@@ -1322,7 +1323,7 @@ function renderOverview(){
     return `<div class="list-row">
       <div style="width:32px;height:32px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">▦</div>
       <div style="flex:1">
-        <div class="list-row-name">${r.name}${r.size?` <span style="font-weight:400;color:var(--ink-3);font-size:11px">— ${r.size}</span>`:''}</div>
+        <div class="list-row-name">${esc(r.name)}${r.size?` <span style="font-weight:400;color:var(--ink-3);font-size:11px">— ${esc(r.size)}</span>`:''}</div>
         <div class="list-row-sub">${cnt} varenr. · ${qty.toLocaleString('da')} stk.</div>
       </div>
     </div>`;
@@ -1341,10 +1342,10 @@ function renderOverview(){
     const pct = Math.min(Math.round((parseInt(i.qty||0)/Math.max(parseInt(i.minQty||1),1))*100),100);
     return `<div class="low-row">
       <div class="low-row-top">
-        <span class="low-row-name">${i.name}</span>
-        <span class="low-row-qty">${i.qty} / ${i.minQty}</span>
+        <span class="low-row-name">${esc(i.name)}</span>
+        <span class="low-row-qty">${esc(i.qty)} / ${esc(i.minQty)}</span>
       </div>
-      <div class="low-row-loc">${r?r.name:''} · ${i.shelf}</div>
+      <div class="low-row-loc">${r?esc(r.name):''} · ${esc(i.shelf)}</div>
       <div class="progress"><div class="progress-fill low" style="width:${pct}%"></div></div>
     </div>`;
   }).join('');
@@ -1370,16 +1371,16 @@ function renderItems(){
     return `<tr>
       <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
       <td>
-        <div class="td-name">${i.name}</div>
-        ${i.sku?`<div class="td-sub">${i.sku}</div>`:''}
+        <div class="td-name">${esc(i.name)}</div>
+        ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
       </td>
       <td>${catBadge(i.cat)}</td>
       <td>
-        <div style="font-size:12px;font-weight:500">${r?r.name:'—'}</div>
-        <div class="td-sub">${i.shelf}</div>
+        <div style="font-size:12px;font-weight:500">${r?esc(r.name):'—'}</div>
+        <div class="td-sub">${esc(i.shelf)}</div>
       </td>
       <td>
-        <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${i.qty}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${esc(i.qty)}</span>
         ${low?'<span class="badge badge-red" style="margin-left:4px;font-size:9px">LAV</span>':''}
       </td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
@@ -1401,10 +1402,10 @@ function renderRooms(){
     const qty = items.filter(i=>i.room===r.id).reduce((s,i)=>s+parseInt(i.qty||0),0);
     return `<div class="room-card${selRoom===r.id?' selected':''}" onclick="selRoom=selRoom==='${r.id}'?null:'${r.id}';renderRooms()">
       <div class="room-num">${String(idx+1).padStart(2,'0')}</div>
-      <div class="room-name">${r.name}</div>
-      <div class="room-meta">${r.size?r.size+' · ':''}${cnt} varenr.</div>
+      <div class="room-name">${esc(r.name)}</div>
+      <div class="room-meta">${r.size?esc(r.size)+' · ':''}${cnt} varenr.</div>
       <div class="room-meta">${qty.toLocaleString('da')} stk. i alt</div>
-      ${r.desc?`<div class="room-meta" style="margin-top:4px;font-style:italic">${r.desc}</div>`:''}
+      ${r.desc?`<div class="room-meta" style="margin-top:4px;font-style:italic">${esc(r.desc)}</div>`:''}
       <div class="room-actions">
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openRoomModal('${r.id}')">Rediger</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();delRoom('${r.id}')">Slet</button>
@@ -1422,7 +1423,7 @@ function renderRooms(){
     det.style.display='block';
     document.getElementById('room-detail-inner').innerHTML = `
       <div class="card-header">
-        <span class="card-title">▦ ${r.name}${r.size?' <span style="font-weight:400;color:var(--ink-3)">— '+r.size+'</span>':''}</span>
+        <span class="card-title">▦ ${esc(r.name)}${r.size?' <span style="font-weight:400;color:var(--ink-3)">— '+esc(r.size)+'</span>':''}</span>
         <button class="btn btn-primary btn-sm" onclick="openItemModal(null,'${r.id}')">+ Tilføj vare her</button>
       </div>
       ${ri.length ? `<div class="table-wrap"><table>
@@ -1433,9 +1434,9 @@ function renderRooms(){
           <th style="width:28%"></th>
         </tr></thead>
         <tbody>${ri.map(i=>`<tr>
-          <td><div class="td-name">${i.name}</div>${catBadge(i.cat)}</td>
-          <td><div class="td-sub" style="font-size:12px">${i.shelf}</div></td>
-          <td><span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${parseInt(i.qty||0)<parseInt(i.minQty||0)?'var(--red)':'var(--ink)'}">${i.qty}</span></td>
+          <td><div class="td-name">${esc(i.name)}</div>${catBadge(i.cat)}</td>
+          <td><div class="td-sub" style="font-size:12px">${esc(i.shelf)}</div></td>
+          <td><span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${parseInt(i.qty||0)<parseInt(i.minQty||0)?'var(--red)':'var(--ink)'}">${esc(i.qty)}</span></td>
           <td><div class="td-actions">
             <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
             <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
@@ -1459,13 +1460,13 @@ function openItemModal(id, preRoom){
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="fg"><label>Varenavn</label><input id="f-name" value="${nm}" placeholder="F.eks. Koniske bordben 71cm" autofocus></div>
+      <div class="fg"><label>Varenavn</label><input id="f-name" value="${esc(nm)}" placeholder="F.eks. Koniske bordben 71cm" autofocus></div>
       <div class="form-row">
-        <div class="fg"><label>Kategori</label><select id="f-cat">${CATS.map(c=>`<option${c===cat?' selected':''}>${c}</option>`).join('')}</select></div>
-        <div class="fg"><label>Varenr. / SKU</label><input id="f-sku" value="${sku}" placeholder="BB-71-K"></div>
+        <div class="fg"><label>Kategori</label><select id="f-cat">${CATS.map(c=>`<option${c===cat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div class="fg"><label>Varenr. / SKU</label><input id="f-sku" value="${esc(sku)}" placeholder="BB-71-K"></div>
       </div>
-      <div class="fg"><label>Rum</label><select id="f-room">${rooms.map(r=>`<option value="${r.id}"${r.id===room?' selected':''}>${r.name}</option>`).join('')}${!rooms.length?'<option value="">— opret rum først —</option>':''}</select></div>
-      <div class="fg"><label>Præcis placering</label><input id="f-shelf" value="${shelf}" placeholder="Reol 2, sektion B, hylde 3"></div>
+      <div class="fg"><label>Rum</label><select id="f-room">${rooms.map(r=>`<option value="${esc(r.id)}"${r.id===room?' selected':''}>${esc(r.name)}</option>`).join('')}${!rooms.length?'<option value="">— opret rum først —</option>':''}</select></div>
+      <div class="fg"><label>Præcis placering</label><input id="f-shelf" value="${esc(shelf)}" placeholder="Reol 2, sektion B, hylde 3"></div>
       <div class="form-row">
         <div class="fg">
           <label>Antal på lager</label>
@@ -1478,7 +1479,7 @@ function openItemModal(id, preRoom){
         </div>
         <div class="fg"><label>Min. beholdning</label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
       </div>
-      <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${note}</textarea></div>
+      <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${esc(note)}</textarea></div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Annuller</button>
@@ -1520,9 +1521,9 @@ function openRoomModal(id){
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="fg"><label>Rum-navn</label><input id="r-name" value="${r?r.name:''}" placeholder="F.eks. Lager A" autofocus></div>
-      <div class="fg"><label>Beskrivelse</label><input id="r-desc" value="${r?r.desc||'':''}" placeholder="F.eks. Hoved lager for store varer"></div>
-      <div class="fg"><label>Størrelse (valgfrit)</label><input id="r-size" value="${r?r.size||'':''}" placeholder="F.eks. 10×8 m"></div>
+      <div class="fg"><label>Rum-navn</label><input id="r-name" value="${r?esc(r.name):''}" placeholder="F.eks. Lager A" autofocus></div>
+      <div class="fg"><label>Beskrivelse</label><input id="r-desc" value="${r?esc(r.desc||''):''}" placeholder="F.eks. Hoved lager for store varer"></div>
+      <div class="fg"><label>Størrelse (valgfrit)</label><input id="r-size" value="${r?esc(r.size||''):''}" placeholder="F.eks. 10×8 m"></div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Annuller</button>
@@ -1627,9 +1628,11 @@ function shipSearchDebounce(){
 }
 
 function jsonpShip(params){
+  const token = sessionStorage.getItem('lager_token') || '';
+  const withToken = params.action === 'verifyLogin' ? params : {...params, token};
   return new Promise((resolve, reject) => {
     const cb = 'shipcb_'+uid();
-    const url = SHIP_API+'?'+new URLSearchParams({...params, callback:cb});
+    const url = SHIP_API+'?'+new URLSearchParams({...withToken, callback:cb});
     const s = document.createElement('script');
     const timer = setTimeout(()=>{ cleanup(); reject(new Error('Timeout')); }, 15000);
     window[cb] = (data) => { cleanup(); resolve(data); };
@@ -1676,7 +1679,15 @@ function renderCarrierChips(ships){
   const carriers = ['Alle', ...new Set(ships.map(s=>s.carrier_code||s.product_code?.split('_')[0]||'?').map(c=>c.toUpperCase()))];
   const el = document.getElementById('carrier-chips');
   if(!el) return;
-  el.innerHTML = carriers.map(c=>`<button class="chip${activeCarrier===c?' active':''}" onclick="activeCarrier='${c}';renderShipments(allShips)">${c}</button>`).join('');
+  const chipsEl = el;
+  chipsEl.innerHTML = '';
+  carriers.forEach(c=>{
+    const btn = document.createElement('button');
+    btn.className = 'chip'+(activeCarrier===c?' active':'');
+    btn.textContent = c;
+    btn.onclick = ()=>{ activeCarrier=c; renderShipments(allShips); };
+    chipsEl.appendChild(btn);
+  });
 }
 
 function renderShipments(ships){
@@ -1720,12 +1731,12 @@ function renderShipments(ships){
     }[state] || 'unknown';
 
     return `<tr>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${s.id||'—'}</td>
-      <td><div class="td-name">${name}</div><div class="td-sub">${addr}</div></td>
-      <td style="font-size:12px">${s.product_code||'—'}</td>
-      <td style="font-size:12px;color:var(--ink-3)">${s.reference||'—'}</td>
-      <td>${trackUrl ? `<a href="${trackUrl}" target="_blank" class="tracking-link">${tracking}</a>` : `<span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${tracking}</span>`}</td>
-      <td style="font-size:12px;color:var(--ink-3)">${date}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(s.id||'—')}</td>
+      <td><div class="td-name">${esc(name)}</div><div class="td-sub">${esc(addr)}</div></td>
+      <td style="font-size:12px">${esc(s.product_code||'—')}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${esc(s.reference||'—')}</td>
+      <td>${trackUrl ? `<a href="${trackUrl.startsWith('http')?trackUrl:'#'}" target="_blank" class="tracking-link">${esc(tracking)}</a>` : `<span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${esc(tracking)}</span>`}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${esc(date)}</td>
       <td>
         <div class="td-actions">
           <span class="ship-status ${stateClass}">${stateLabel}</span>
@@ -1747,7 +1758,7 @@ async function printLabel(id){
 
   // Build printer modal
   const printerOpts = availablePrinters.length
-    ? availablePrinters.map(p=>`<option value="${p.host_name}|${p.printer}|${p.label_format}">${p.name||p.printer} (${p.host_name})</option>`).join('')
+    ? availablePrinters.map(p=>`<option value="${esc(p.host_name)}|${esc(p.printer)}|${esc(p.label_format)}">${esc(p.name||p.printer)} (${esc(p.host_name)})</option>`).join('')
     : '';
 
   document.getElementById('modal-box').innerHTML = `
@@ -2055,7 +2066,7 @@ function renderPriser(products){
 
     return `<div class="card" style="margin-bottom:16px">
       <div class="card-header">
-        <span class="card-title">🚚 ${carrier}</span>
+        <span class="card-title">🚚 ${esc(carrier)}</span>
         <span style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace">${prods.length} produkter</span>
       </div>
       <div class="table-wrap">
@@ -2077,13 +2088,13 @@ function renderPriser(products){
               const available = p.available !== false;
               return `<tr style="${!available?'opacity:.5':''}">
                 <td>
-                  <div class="td-name">${p.name||'—'}</div>
+                  <div class="td-name">${esc(p.name||'—')}</div>
                   ${!available?'<span class="badge badge-gray" style="margin-top:2px">Ikke tilgængelig</span>':''}
                 </td>
-                <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${p.code||p.product_code||'—'}</span></td>
-                <td style="font-size:12px;color:var(--ink-2)">${transit}</td>
-                <td><span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${fromCountry}</span></td>
-                <td><span style="font-size:11px;color:var(--ink-3)">${weights.length>60?weights.slice(0,57)+'…':weights}</span></td>
+                <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(p.code||p.product_code||'—')}</span></td>
+                <td style="font-size:12px;color:var(--ink-2)">${esc(transit)}</td>
+                <td><span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${esc(fromCountry)}</span></td>
+                <td><span style="font-size:11px;color:var(--ink-3)">${esc(weights.length>60?weights.slice(0,57)+'…':weights)}</span></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -2094,7 +2105,6 @@ function renderPriser(products){
 }
 
 // ── LOGIN ──
-const ACCESS_HASH = '88423afe4fea6e2f0567bfc1a41cb61850d87015692590a621f6645d3a739a39';
 let loginAttempts = 0;
 
 async function sha256(str) {
@@ -2105,19 +2115,27 @@ async function sha256(str) {
 async function doLogin() {
   const inp = document.getElementById('login-input');
   const err = document.getElementById('login-err');
+  err.textContent = 'Verificerer…';
   const hash = await sha256(inp.value);
-  if (hash === ACCESS_HASH) {
-    const screen = document.getElementById('login-screen');
-    screen.classList.add('hidden');
-    setTimeout(() => screen.style.display = 'none', 320);
-    sessionStorage.setItem('lager_auth', '1');
-    loginAttempts = 0;
-  } else {
-    loginAttempts++;
-    err.textContent = 'Forkert kode — prøv igen';
-    inp.value = '';
-    inp.placeholder = 'Skriv adgangskode...';
-    inp.focus();
+  try {
+    const res = await jsonpShip({ action:'verifyLogin', hash });
+    if (res && res.token) {
+      sessionStorage.setItem('lager_auth', '1');
+      sessionStorage.setItem('lager_token', res.token);
+      const screen = document.getElementById('login-screen');
+      screen.classList.add('hidden');
+      setTimeout(() => screen.style.display = 'none', 320);
+      loginAttempts = 0;
+      err.textContent = '';
+    } else {
+      loginAttempts++;
+      err.textContent = 'Forkert kode — prøv igen';
+      inp.value = '';
+      inp.focus();
+      setTimeout(() => err.textContent = '', 2500);
+    }
+  } catch(e) {
+    err.textContent = 'Serverfejl — prøv igen';
     setTimeout(() => err.textContent = '', 2500);
   }
 }
@@ -2741,34 +2759,6 @@ function scrollAI(){
 }
 </script>
 
-<!-- DEBUG TOOL -->
-<div id="debug-panel" style="display:none;position:fixed;bottom:100px;left:20px;right:20px;max-width:600px;background:#fff;border:2px solid #E24B4A;border-radius:10px;padding:1rem;z-index:500;box-shadow:0 8px 32px rgba(0,0,0,.2);font-family:'IBM Plex Mono',monospace;font-size:12px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <strong style="font-size:13px;font-family:'Inter',sans-serif">Debug — Shipmondo API svar</strong>
-    <button onclick="document.getElementById('debug-panel').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:#999">✕</button>
-  </div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-    <button onclick="debugCall('getBalance')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getBalance</button>
-    <button onclick="debugCall('getShipments')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getShipments</button>
-    <button onclick="debugCall('getProducts')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getProducts</button>
-    <button onclick="debugCall('getPrinters')" style="padding:4px 10px;font-size:11px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#f5f5f5;font-family:inherit">getPrinters</button>
-  </div>
-  <pre id="debug-out" style="background:#f8f8f8;border:1px solid #eee;border-radius:6px;padding:10px;overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;font-size:11px;color:#333">Klik en knap for at teste...</pre>
-</div>
-<button onclick="document.getElementById('debug-panel').style.display='block'" style="position:fixed;bottom:100px;left:20px;background:#E24B4A;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;z-index:499;font-family:'Inter',sans-serif;font-weight:600">🔧 Debug API</button>
-
-<script>
-async function debugCall(action) {
-  const out = document.getElementById('debug-out');
-  out.textContent = 'Henter ' + action + '…';
-  try {
-    const d = await jsonpShip({ action });
-    out.textContent = JSON.stringify(d, null, 2);
-  } catch(e) {
-    out.textContent = 'FEJL: ' + e.message;
-  }
-}
-</script>
 
 </body>
 </html>

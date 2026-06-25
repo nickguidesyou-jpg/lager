@@ -2,13 +2,27 @@ var SHIPMONDO_USER = '270c71ce-28a2-47ff-bc06-b73a972d5cc0';
 var SHIPMONDO_KEY  = '6bb70c43-5957-43ec-9264-ccaaec14351f';
 var BASE_URL = 'https://app.shipmondo.com/api/public/v3/';
 
+function getProps() {
+  return PropertiesService.getScriptProperties();
+}
+
+function validToken(p) {
+  var expected = getProps().getProperty('LAGER_TOKEN');
+  if (!expected) return false;
+  return p.token === expected;
+}
+
 function doGet(e) {
   var p  = e.parameter;
   var cb = p.callback;
   var result;
   try {
     var action = p.action;
-    if (action === 'getShipments')         result = getShipments(p);
+    if (action === 'verifyLogin') {
+      result = verifyLogin(p);
+    } else if (!validToken(p)) {
+      result = { error: 'Ikke autoriseret' };
+    } else if (action === 'getShipments')         result = getShipments(p);
     else if (action === 'getProducts')     result = getProducts(p);
     else if (action === 'getPrinters')     result = getPrinters();
     else if (action === 'getLabel')        result = getLabel(p.id);
@@ -33,13 +47,28 @@ function doPost(e) {
   var data = JSON.parse(e.postData.contents);
   var result;
   try {
-    if (data.action === 'createShipment') result = createShipment(data);
-    else result = { error: 'Ukendt POST handling' };
+    if (!validToken(data)) {
+      result = { error: 'Ikke autoriseret' };
+    } else if (data.action === 'createShipment') {
+      result = createShipment(data);
+    } else {
+      result = { error: 'Ukendt POST handling' };
+    }
   } catch (err) {
     result = { error: err.message };
   }
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function verifyLogin(p) {
+  var storedHash = getProps().getProperty('LAGER_HASH');
+  var token      = getProps().getProperty('LAGER_TOKEN');
+  if (!storedHash || !token) return { error: 'Server ikke konfigureret — sæt LAGER_HASH og LAGER_TOKEN i Script Properties' };
+  if (p.hash === storedHash) {
+    return { token: token };
+  }
+  return { error: 'Forkert kode' };
 }
 
 function shipmondoRequest(method, endpoint, payload) {
