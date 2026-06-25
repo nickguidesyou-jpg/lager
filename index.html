@@ -2118,6 +2118,10 @@ async function doLogin() {
       setTimeout(() => screen.style.display = 'none', 320);
       loginAttempts = 0;
       err.textContent = '';
+      loadAll().then(()=>checkNotifications());
+      loadBalance();
+      loadMonthlyStats();
+      loadMonthlyHistory();
     } else {
       loginAttempts++;
       err.textContent = 'Forkert kode — prøv igen';
@@ -2342,13 +2346,16 @@ function renderChart(months){
 }
 
 document.querySelector('#tab-oversigt').classList.add('active');
-loadAll().then(()=>checkNotifications());
-loadBalance();
-loadMonthlyStats();
-loadMonthlyHistory();
-setInterval(loadBalance, 60000);
-setInterval(loadMonthlyStats, 300000);
-setInterval(loadMonthlyHistory, 600000);
+const _hasToken = !!sessionStorage.getItem('lager_token');
+if (_hasToken) {
+  loadAll().then(()=>checkNotifications());
+  loadBalance();
+  loadMonthlyStats();
+  loadMonthlyHistory();
+}
+setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadBalance(); }, 60000);
+setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadMonthlyStats(); }, 300000);
+setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadMonthlyHistory(); }, 600000);
 
 </script>
 
