@@ -1809,8 +1809,17 @@ function renderShipments(ships){
     const name = receiver.name || '—';
     const addr = [receiver.address1, receiver.postal_code, receiver.city].filter(Boolean).join(', ');
     const date = s.created_at ? new Date(s.created_at).toLocaleDateString('da-DK',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
-    const tracking = s.parcels?.[0]?.pkg_no || s.parcels?.[0]?.id || s.tracking_number || '—';
-    const trackUrl = s.parcels?.[0]?.tracking_link || null;
+    const tracking = s.parcels?.[0]?.pkg_no || s.pkg_no || s.tracking_number || '—';
+    const carrier  = (s.carrier_code || '').toLowerCase();
+    const trackUrl = tracking !== '—' ? ({
+      pdk:   `https://tracking.postnord.com/en/?id=${tracking}`,
+      gls:   `https://gls-group.eu/track/${tracking}`,
+      dao:   `https://www.dao.as/track?packageNumber=${tracking}`,
+      bring: `https://tracking.bring.com/tracking/${tracking}`,
+      dhl:   `https://www.dhl.com/dk-en/home/tracking.html?tracking-id=${tracking}`,
+      ups:   `https://www.ups.com/track?tracknum=${tracking}`,
+      dfm:   `https://www.dfm.dk/spoer-din-pakke/?q=${tracking}`,
+    }[carrier] || s.parcels?.[0]?.tracking_link || null) : null;
     const state = s.state || 'created';
     const stateLabel = {
       'created':'Oprettet','in_transit':'Under transport','transit':'Under transport',
@@ -1826,7 +1835,10 @@ function renderShipments(ships){
       <td><div class="td-name">${esc(name)}</div><div class="td-sub">${esc(addr)}</div></td>
       <td style="font-size:12px">${esc(s.product_code||'—')}</td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(s.reference||'—')}</td>
-      <td>${trackUrl ? `<a href="${trackUrl.startsWith('http')?trackUrl:'#'}" target="_blank" class="tracking-link">${esc(tracking)}</a>` : `<span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${esc(tracking)}</span>`}</td>
+      <td>
+        <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--ink-3)">${esc(tracking)}</div>
+        ${trackUrl ? `<a href="${trackUrl}" target="_blank" rel="noopener" class="tracking-link" style="font-size:11px">↗ Spor pakke</a>` : ''}
+      </td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(date)}</td>
       <td>
         <div class="td-actions">
