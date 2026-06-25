@@ -2086,26 +2086,35 @@ let sesuPrices = {};
 let sesuPricesLoaded = false;
 
 async function loadPriser(){
-  prisLoaded = false; // will be set true after successful load
+  prisLoaded = false;
   const loading = document.getElementById('pris-loading');
   const content = document.getElementById('pris-content');
-  if(loading) loading.style.display = 'block';
+  if(loading){ loading.style.display = 'block'; loading.textContent = 'Henter fragtprodukter…'; }
   if(content) content.style.display = 'none';
+
+  // Step 1: load products and show immediately
   try {
-    const [d, priceStats] = await Promise.all([
-      jsonpShip({ action:'getProducts', country:'DK' }),
-      jsonpShip({ action:'getPricingStats' }).catch(() => ({}))
-    ]);
-    allProducts = Array.isArray(d) ? d : (d.products || d.shipments || []);
+    const d = await jsonpShip({ action:'getProducts', country:'DK' });
+    if(d && d.error) throw new Error(d.error);
+    allProducts = Array.isArray(d) ? d : [];
     allProducts = allProducts.filter(p => p.available !== false);
-    allPriceStats = priceStats || {};
     prisLoaded = true;
     if(loading) loading.style.display = 'none';
     if(content) content.style.display = 'block';
     renderPriser(allProducts);
   } catch(e) {
-    if(loading) loading.textContent = 'Fejl: ' + e.message;
+    if(loading){ loading.style.display='block'; loading.textContent = 'Fejl ved hentning: ' + e.message; }
+    return;
   }
+
+  // Step 2: load pricing stats in background and refresh
+  try {
+    const priceStats = await jsonpShip({ action:'getPricingStats' });
+    if(priceStats && !priceStats.error){
+      allPriceStats = priceStats;
+      renderPriser(allProducts);
+    }
+  } catch(e) { /* ingen priser — OK */ }
 }
 
 function filterPriser(){
