@@ -2,6 +2,12 @@ var SHIPMONDO_USER = '270c71ce-28a2-47ff-bc06-b73a972d5cc0';
 var SHIPMONDO_KEY  = '6bb70c43-5957-43ec-9264-ccaaec14351f';
 var BASE_URL = 'https://app.shipmondo.com/api/public/v3/';
 
+// KØR DENNE ÉN GANG FRA APPS SCRIPT EDITOREN — erstat sk-ant-... med din nøgle
+function setupAnthropicKey() {
+  PropertiesService.getScriptProperties().setProperty('ANTHROPIC_KEY', 'sk-ant-ERSTAT-MED-DIN-NØGLE');
+  Logger.log('ANTHROPIC_KEY sat. Slet nu denne funktion og push igen.');
+}
+
 function getProps() {
   return PropertiesService.getScriptProperties();
 }
@@ -51,6 +57,8 @@ function doPost(e) {
       result = { error: 'Ikke autoriseret' };
     } else if (data.action === 'createShipment') {
       result = createShipment(data);
+    } else if (data.action === 'claudeProxy') {
+      result = claudeProxy(data);
     } else {
       result = { error: 'Ukendt POST handling' };
     }
@@ -59,6 +67,30 @@ function doPost(e) {
   }
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function claudeProxy(data) {
+  var key = getProps().getProperty('ANTHROPIC_KEY');
+  if (!key) return { error: 'ANTHROPIC_KEY ikke sat i Script Properties' };
+  var body = {
+    model: data.model || 'claude-sonnet-4-6',
+    max_tokens: Math.min(parseInt(data.max_tokens) || 2000, 4000),
+    messages: data.messages,
+    system: data.system || ''
+  };
+  if (data.tools) body.tools = data.tools;
+  var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'web-search-2025-03-05',
+      'content-type': 'application/json'
+    },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true
+  });
+  return JSON.parse(res.getContentText());
 }
 
 function verifyLogin(p) {
