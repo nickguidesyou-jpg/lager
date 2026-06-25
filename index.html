@@ -1595,16 +1595,6 @@ function filterNavSearch(q) {
   renderItems();
 }
 
-document.querySelector('#tab-oversigt').classList.add('active');
-loadAll().then(()=>checkNotifications());
-loadBalance();
-loadMonthlyStats();
-loadMonthlyHistory();
-setInterval(loadBalance, 60000);
-setInterval(loadMonthlyStats, 300000);
-setInterval(loadMonthlyHistory, 600000);
-
-
 // ── SHIPMONDO ──
 const SHIP_API = 'https://script.google.com/macros/s/AKfycbwtLFUm0lMDMg8arsAtYPR8O_rz7iTN78-c2ubCkcGLnnYGmPhtxXox1JIDWLkLkMNSjQ/exec';
 let shipLoaded = false;
@@ -2350,6 +2340,15 @@ function renderChart(months){
     }
   });
 }
+
+document.querySelector('#tab-oversigt').classList.add('active');
+loadAll().then(()=>checkNotifications());
+loadBalance();
+loadMonthlyStats();
+loadMonthlyHistory();
+setInterval(loadBalance, 60000);
+setInterval(loadMonthlyStats, 300000);
+setInterval(loadMonthlyHistory, 600000);
 
 </script>
 
