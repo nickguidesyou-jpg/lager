@@ -990,7 +990,7 @@ tbody tr:hover td { background: var(--surface); }
         <span class="nav-icon">⬡</span> Rum & zoner
       </button>
       <button class="nav-item" onclick="showTab('forsendelser')" id="nav-forsendelser">
-        <span class="nav-icon">📦</span> Forsendelser
+        <span class="nav-icon">📦</span> Shipmondo
       </button>
       <button class="nav-item" onclick="showTab('priser')" id="nav-priser">
         <span class="nav-icon">💶</span> Fragtpriser
@@ -1023,7 +1023,7 @@ tbody tr:hover td { background: var(--surface); }
         <span class="mnav-icon">⬡</span>
         <span>Rum</span>
       </button>
-      <button class="mobile-nav-item" id="mnav-forsendelser" onclick="showTab('forsendelser')" aria-label="Forsendelser">
+      <button class="mobile-nav-item" id="mnav-forsendelser" onclick="showTab('forsendelser')" aria-label="Shipmondo">
         <span class="mnav-icon">📦</span>
         <span>Forsend.</span>
       </button>
@@ -1215,7 +1215,7 @@ tbody tr:hover td { background: var(--surface); }
 const API = 'https://script.google.com/macros/s/AKfycbwdbhEo-na7UVPQ4raRAz22NhVxFzE8YvdyK1u06iTTKd4PDbdlQLU1jgHjhubgIUYZjw/exec';
 const CATS = ['Bordben','Beslag','Hyldeplader','Skruer & bolte','Møbelben','Hjul & gliders','Andet'];
 const BADGE = { Bordben:'badge-blue', Beslag:'badge-green', Hyldeplader:'badge-amber', 'Skruer & bolte':'badge-gray', Møbelben:'badge-blue', 'Hjul & gliders':'badge-green', Andet:'badge-gray' };
-const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser' };
+const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Shipmondo', priser:'Fragtpriser' };
 
 let items=[], rooms=[], selRoom=null, activeCat='Alle';
 let autoTimer = null;
