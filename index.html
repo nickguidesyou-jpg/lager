@@ -7,7 +7,106 @@
 <title>SESU Lagersystem</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
+/* ── DARK MODE ── */
+[data-theme="dark"] {
+  --ink: #F0EEE9;
+  --ink-2: #C8C5BF;
+  --ink-3: #7A7774;
+  --border: #2A2925;
+  --border-light: #222019;
+  --surface: #141310;
+  --surface-2: #1C1A17;
+  --white: #1A1815;
+  --accent: #E8652A;
+  --accent-dim: #2A1F18;
+  --green: #4A9A4A;
+  --green-dim: #152015;
+  --blue: #3A7ABE;
+  --blue-dim: #101B28;
+  --amber: #A07A2A;
+  --amber-dim: #251E0A;
+  --red: #E84040;
+  --red-dim: #280E0E;
+}
+[data-theme="dark"] .sidebar { background: #0E0D0B; }
+[data-theme="dark"] .topbar { background: #1A1815; }
+[data-theme="dark"] .login-screen { background: #0E0D0B; }
+[data-theme="dark"] body { background: var(--surface); }
+
+/* ── BULK ACTION BAR ── */
+.bulk-bar {
+  position: fixed;
+  bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 32px rgba(0,0,0,.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 150;
+  white-space: nowrap;
+}
+.bulk-bar.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: all; }
+.bulk-bar-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.1);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background .1s;
+}
+.bulk-bar-btn:hover { background: rgba(255,255,255,.2); }
+.bulk-bar-btn.danger { border-color: rgba(255,100,100,.4); color: #FF9090; }
+.bulk-bar-btn.danger:hover { background: rgba(255,80,80,.2); }
+
+/* ── CHART ── */
+.chart-wrap { padding: 16px 20px; position: relative; height: 220px; }
+
+/* ── SHORTCUTS BADGE ── */
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; font-weight: 500;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--ink-3);
+}
+
+/* ── QR MODAL ── */
+.qr-img { display: block; margin: 0 auto 12px; border-radius: 8px; }
+
+/* ── NOTIFICATION DOT ── */
+.notif-dot {
+  width: 7px; height: 7px;
+  background: var(--red);
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: pulse 1.5s infinite;
+}
+
+/* ── CARRIER CHIPS ── */
+.carrier-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* ── CHECKBOX ── */
+.row-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--ink); }
+</style>
 :root {
   --ink: #0F0E0C;
   --ink-2: #3A3835;
@@ -947,7 +1046,8 @@ tbody tr:hover td { background: var(--surface); }
         <div class="page-sub" id="page-sub">Henter data…</div>
       </div>
       <div class="topbar-actions">
-
+        <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste">↓ CSV</button>
         <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
         <button class="btn btn-primary" onclick="openItemModal(null,null)">+ Tilføj vare</button>
       </div>
@@ -965,6 +1065,13 @@ tbody tr:hover td { background: var(--surface); }
             <div id="ov-rooms"></div>
           </div>
 
+        </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <span class="card-title">Forsendelser — sidste 6 måneder</span>
+            <span id="chart-loading" style="font-size:11px;color:var(--ink-3)">Henter…</span>
+          </div>
+          <div class="chart-wrap"><canvas id="ship-chart"></canvas></div>
         </div>
         <div class="card">
           <div class="card-header">
@@ -984,16 +1091,24 @@ tbody tr:hover td { background: var(--surface); }
           </div>
           <div class="filter-chips" id="filter-chips"></div>
         </div>
+        <div class="bulk-bar" id="bulk-bar">
+          <span id="bulk-count">0 valgt</span>
+          <button class="bulk-bar-btn" onclick="bulkAdjust(1)">+ Antal</button>
+          <button class="bulk-bar-btn" onclick="bulkAdjust(-1)">− Antal</button>
+          <button class="bulk-bar-btn danger" onclick="bulkDelete()">Slet valgte</button>
+          <button class="bulk-bar-btn" onclick="clearBulk()">✕ Annuller</button>
+        </div>
         <div class="card">
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th style="width:28%">Varenavn</th>
+                <th style="width:3%"><input type="checkbox" id="check-all" onchange="toggleAllCheck(this)" class="row-check"></th>
+                <th style="width:26%">Varenavn</th>
                 <th style="width:13%">Kategori</th>
-                <th style="width:22%">Placering</th>
-                <th style="width:10%">Antal</th>
+                <th style="width:21%">Placering</th>
+                <th style="width:9%">Antal</th>
                 <th style="width:9%">Min.</th>
-                <th style="width:18%"></th>
+                <th style="width:19%"></th>
               </tr></thead>
               <tbody id="items-tbody"></tbody>
             </table>
@@ -1030,6 +1145,9 @@ tbody tr:hover td { background: var(--surface); }
           </div>
           <button class="btn btn-primary" onclick="openNewShipmentModal()">+ Ny forsendelse</button>
         </div>
+
+        <!-- Carrier filter -->
+        <div class="carrier-chips" id="carrier-chips"></div>
 
         <!-- Stats row -->
         <div id="ship-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
@@ -1243,12 +1361,14 @@ function renderItems(){
     return ms && (activeCat==='Alle'||i.cat===activeCat);
   });
   const tb = document.getElementById('items-tbody'), em = document.getElementById('items-empty');
-  if(!fil.length){ tb.innerHTML=''; em.style.display=''; return; }
+  if(!fil.length){ tb.innerHTML=''; em.style.display=''; document.getElementById('check-all').checked=false; return; }
   em.style.display='none';
   tb.innerHTML = fil.map(i=>{
     const r = rooms.find(r=>r.id===i.room);
     const low = parseInt(i.qty||0)<parseInt(i.minQty||0);
+    const checked = selectedItems.has(i.id) ? 'checked' : '';
     return `<tr>
+      <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
       <td>
         <div class="td-name">${i.name}</div>
         ${i.sku?`<div class="td-sub">${i.sku}</div>`:''}
@@ -1265,6 +1385,7 @@ function renderItems(){
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
       <td>
         <div class="td-actions">
+          <button class="btn btn-ghost btn-sm" onclick="showQR('${i.id}')" title="QR-kode">⊞</button>
           <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
           <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
         </div>
@@ -1473,11 +1594,13 @@ function filterNavSearch(q) {
 }
 
 document.querySelector('#tab-oversigt').classList.add('active');
-loadAll();
+loadAll().then(()=>checkNotifications());
 loadBalance();
 loadMonthlyStats();
+loadMonthlyHistory();
 setInterval(loadBalance, 60000);
 setInterval(loadMonthlyStats, 300000);
+setInterval(loadMonthlyHistory, 600000);
 
 
 // ── SHIPMONDO ──
@@ -1546,7 +1669,23 @@ async function loadShipments(){
   }
 }
 
+let activeCarrier = 'Alle';
+let allShips = [];
+
+function renderCarrierChips(ships){
+  const carriers = ['Alle', ...new Set(ships.map(s=>s.carrier_code||s.product_code?.split('_')[0]||'?').map(c=>c.toUpperCase()))];
+  const el = document.getElementById('carrier-chips');
+  if(!el) return;
+  el.innerHTML = carriers.map(c=>`<button class="chip${activeCarrier===c?' active':''}" onclick="activeCarrier='${c}';renderShipments(allShips)">${c}</button>`).join('');
+}
+
 function renderShipments(ships){
+  allShips = ships;
+  renderCarrierChips(ships);
+  const filtered = activeCarrier==='Alle' ? ships : ships.filter(s=>{
+    const cc = (s.carrier_code||s.product_code?.split('_')[0]||'?').toUpperCase();
+    return cc===activeCarrier;
+  });
   const tbody = document.getElementById('ship-tbody');
   const empty = document.getElementById('ship-empty');
 
@@ -1559,9 +1698,10 @@ function renderShipments(ships){
     <div class="stat-card"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail">aktive forsendelser</div></div>
     <div class="stat-card green"><div class="stat-label">Leveret</div><div class="stat-value">${String(delivered).padStart(2,'0')}</div><div class="stat-detail">afsluttede</div></div>`;
 
-  if(!ships.length){ if(empty) empty.style.display=''; return; }
+  if(!filtered.length){ if(empty) empty.style.display=''; return; }
+  if(empty) empty.style.display='none';
 
-  tbody.innerHTML = ships.map(s => {
+  tbody.innerHTML = filtered.map(s => {
     const receiver = (s.parties||[]).find(p=>p.type==='receiver') || s.receiver || {};
     const sender   = (s.parties||[]).find(p=>p.type==='sender')   || s.sender   || {};
     const name = receiver.name || '—';
@@ -1999,10 +2139,193 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   const screen = document.getElementById('login-screen');
   if (screen) screen.style.display = 'none';
 } else {
-  // Focus the input when page loads
   window.addEventListener('DOMContentLoaded', () => {
     const inp = document.getElementById('login-input');
     if (inp) inp.focus();
+  });
+}
+
+// ── DARK MODE ──
+function toggleDark(){
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? '' : 'dark');
+  localStorage.setItem('lager_theme', dark ? 'light' : 'dark');
+  document.getElementById('dark-toggle').textContent = dark ? '☀' : '☾';
+  if(shipChartInstance) { shipChartInstance.destroy(); shipChartInstance=null; renderChart(lastChartData); }
+}
+(function(){
+  if(localStorage.getItem('lager_theme') === 'dark'){
+    document.documentElement.setAttribute('data-theme','dark');
+    window.addEventListener('DOMContentLoaded',()=>{
+      const btn=document.getElementById('dark-toggle');
+      if(btn) btn.textContent='☾';
+    });
+  }
+})();
+
+// ── KEYBOARD SHORTCUTS ──
+document.addEventListener('keydown', e => {
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if(e.key==='/' || e.key==='s'){ e.preventDefault(); showTab('varer'); setTimeout(()=>document.getElementById('search')?.focus(),100); }
+  if(e.key==='n' || e.key==='N'){ openItemModal(null,null); }
+  if(e.key==='r' || e.key==='R'){ loadAll(); }
+  if(e.key==='Escape'){ closeModal(); }
+  if(e.key==='d' || e.key==='D'){ toggleDark(); }
+});
+
+// ── CSV EXPORT ──
+function exportCSV(){
+  const rows = [['Varenavn','SKU','Kategori','Rum','Placering','Antal','Minimum','Note']];
+  items.forEach(i=>{
+    const r = rooms.find(r=>r.id===i.room);
+    rows.push([i.name, i.sku||'', i.cat, r?.name||'', i.shelf, i.qty, i.minQty, i.note||'']);
+  });
+  const csv = rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download='lager-'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV downloadet');
+}
+
+// ── QR CODE ──
+function showQR(id){
+  const i = items.find(i=>i.id===id);
+  if(!i) return;
+  const r = rooms.find(r=>r.id===i.room);
+  const text = [i.name, i.sku?'SKU: '+i.sku:'', r?r.name+' · '+i.shelf:i.shelf, 'Antal: '+i.qty].filter(Boolean).join('\n');
+  const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(text);
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">QR-kode — ${i.name}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center">
+      <img src="${qrUrl}" class="qr-img" width="200" height="200" alt="QR">
+      <div style="font-size:12px;color:var(--ink-3);margin-top:8px;font-family:'IBM Plex Mono',monospace">${i.shelf}${r?' · '+r.name:''}</div>
+      <div style="margin-top:12px">
+        <a href="${qrUrl}" download="qr-${i.name}.png" class="btn btn-primary btn-sm">↓ Download</a>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Luk</button>
+    </div>`;
+  openModal();
+}
+
+// ── BULK ACTIONS ──
+let selectedItems = new Set();
+
+function toggleCheck(id, cb){
+  if(cb.checked) selectedItems.add(id);
+  else selectedItems.delete(id);
+  updateBulkBar();
+}
+function toggleAllCheck(cb){
+  const boxes = document.querySelectorAll('#items-tbody .row-check');
+  boxes.forEach(b=>{ b.checked=cb.checked; });
+  const fil = getFilteredItems();
+  if(cb.checked) fil.forEach(i=>selectedItems.add(i.id));
+  else selectedItems.clear();
+  updateBulkBar();
+}
+function getFilteredItems(){
+  const q=(document.getElementById('search')?.value||'').toLowerCase();
+  return items.filter(i=>{
+    const r=rooms.find(r=>r.id===i.room);
+    const ms=!q||[i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
+    return ms&&(activeCat==='Alle'||i.cat===activeCat);
+  });
+}
+function updateBulkBar(){
+  const bar=document.getElementById('bulk-bar');
+  const cnt=document.getElementById('bulk-count');
+  if(selectedItems.size>0){ bar.classList.add('show'); cnt.textContent=selectedItems.size+' valgt'; }
+  else bar.classList.remove('show');
+}
+function clearBulk(){
+  selectedItems.clear();
+  document.querySelectorAll('.row-check').forEach(b=>b.checked=false);
+  const ca=document.getElementById('check-all'); if(ca) ca.checked=false;
+  updateBulkBar();
+}
+async function bulkAdjust(delta){
+  const n = parseInt(prompt(`Juster antal med (f.eks. 5 eller -3):`));
+  if(isNaN(n)) return;
+  sync('load','Opdaterer…');
+  for(const id of selectedItems){
+    const it=items.find(i=>i.id===id); if(!it) continue;
+    const newQty=Math.max(0,parseInt(it.qty||0)+n);
+    await jsonp({action:'saveItem',id,name:it.name,cat:it.cat,room:it.room,shelf:it.shelf,qty:newQty,minQty:it.minQty,sku:it.sku||'',note:it.note||''});
+  }
+  clearBulk(); toast('Opdateret'); await loadAll();
+}
+async function bulkDelete(){
+  if(!confirm(`Slet ${selectedItems.size} vare(r)?`)) return;
+  sync('load','Sletter…');
+  for(const id of selectedItems) await jsonp({action:'deleteItem',id});
+  clearBulk(); toast('Slettet'); await loadAll();
+}
+
+// ── LOW STOCK NOTIFICATION ──
+function checkNotifications(){
+  const low=items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  if(!low.length) return;
+  if(Notification.permission==='granted'){
+    new Notification('Lav beholdning — Lagersystem',{
+      body: low.slice(0,3).map(i=>i.name+': '+i.qty+'/'+i.minQty).join('\n')+(low.length>3?'\n…og '+(low.length-3)+' mere':''),
+      icon:'https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png'
+    });
+  } else if(Notification.permission!=='denied'){
+    Notification.requestPermission().then(p=>{ if(p==='granted') checkNotifications(); });
+  }
+}
+
+// ── MONTHLY CHART ──
+let shipChartInstance = null;
+let lastChartData = null;
+
+async function loadMonthlyHistory(){
+  try {
+    const d = await jsonpShip({ action:'getMonthlyHistory' });
+    if(d && d.months) { lastChartData=d.months; renderChart(d.months); }
+    const lbl=document.getElementById('chart-loading');
+    if(lbl) lbl.style.display='none';
+  } catch(e) {
+    const lbl=document.getElementById('chart-loading');
+    if(lbl) lbl.textContent='Ikke tilgængelig';
+  }
+}
+
+function renderChart(months){
+  if(!months||!months.length) return;
+  const MONTH_NAMES=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+  const labels = months.map(m=>MONTH_NAMES[m.month-1]+' '+m.year);
+  const counts = months.map(m=>m.count);
+  const avgs   = months.map(m=>m.avg);
+  const dark = document.documentElement.getAttribute('data-theme')==='dark';
+  const gridColor = dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.06)';
+  const textColor = dark ? '#7A7774' : '#7A7774';
+  const canvas = document.getElementById('ship-chart');
+  if(!canvas) return;
+  if(shipChartInstance) shipChartInstance.destroy();
+  shipChartInstance = new Chart(canvas, {
+    data: {
+      labels,
+      datasets: [
+        { type:'bar', label:'Forsendelser', data:counts, backgroundColor: dark?'rgba(58,122,190,.6)':'rgba(26,74,122,.5)', borderColor: dark?'#3A7ABE':'#1A4A7A', borderWidth:1, yAxisID:'y' },
+        { type:'line', label:'Gns. pris (kr.)', data:avgs, borderColor:'#C8521A', backgroundColor:'rgba(200,82,26,.1)', borderWidth:2, pointRadius:3, tension:.3, yAxisID:'y2' }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ font:{family:'Inter',size:11}, color:textColor } } },
+      scales:{
+        y:{ beginAtZero:true, grid:{color:gridColor}, ticks:{color:textColor,font:{family:'IBM Plex Mono',size:10}}, title:{display:true,text:'Antal',color:textColor,font:{size:10}} },
+        y2:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, ticks:{color:'#C8521A',font:{family:'IBM Plex Mono',size:10},callback:v=>v+' kr.'}, title:{display:true,text:'Pris',color:'#C8521A',font:{size:10}} }
+      }
+    }
   });
 }
 
