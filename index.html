@@ -1090,6 +1090,7 @@ tbody tr:hover td { background: var(--surface); }
             <input type="text" id="search" placeholder="Søg varenavn, rum, placering, SKU…" oninput="renderItems()">
           </div>
           <div class="filter-chips" id="filter-chips"></div>
+          <button class="btn btn-ghost btn-sm" id="sesu-btn" onclick="loadSesuPrices()" title="Hent aktuelle priser fra sesu.dk" style="white-space:nowrap">⟳ sesu.dk priser <span id="sesu-status" style="font-size:10px;color:var(--ink-3)"></span></button>
         </div>
         <div class="bulk-bar" id="bulk-bar">
           <span id="bulk-count">0 valgt</span>
@@ -1108,7 +1109,7 @@ tbody tr:hover td { background: var(--surface); }
                 <th style="width:17%">Placering</th>
                 <th style="width:7%">Antal</th>
                 <th style="width:7%">Min.</th>
-                <th style="width:10%">Pris <span id="sesu-status" style="font-size:10px;font-weight:400;color:var(--ink-3)"></span></th>
+                <th style="width:10%">Pris (sesu.dk)</th>
                 <th style="width:11%">Lagerværdi</th>
                 <th style="width:12%"></th>
               </tr></thead>
@@ -1270,21 +1271,24 @@ async function loadAll(quiet){
 function renderAll(){ renderOverview(); renderItems(); renderRooms(); }
 
 async function loadSesuPrices() {
+  const btn = document.getElementById('sesu-btn');
   const statusEl = document.getElementById('sesu-status');
-  if(statusEl) statusEl.textContent = '⟳';
+  if(btn) btn.disabled = true;
+  if(statusEl) statusEl.textContent = '— henter…';
   try {
     const d = await jsonpShipSlow({ action:'getSesuPrices' });
-    if(d && !d.error) {
+    if(d && !d.error && Object.keys(d).length > 0) {
       sesuPrices = d;
       sesuPricesLoaded = true;
-      if(statusEl) statusEl.textContent = '● live';
+      if(statusEl) statusEl.textContent = '✓ ' + Object.keys(d).length + ' priser';
       renderItems();
     } else {
-      if(statusEl) statusEl.textContent = '';
+      if(statusEl) statusEl.textContent = '— fejl';
     }
   } catch(e) {
-    if(statusEl) statusEl.textContent = '';
+    if(statusEl) statusEl.textContent = '— timeout';
   }
+  if(btn) btn.disabled = false;
 }
 
 function jsonpShipSlow(params){
@@ -2247,7 +2251,6 @@ async function doLogin() {
       loadBalance();
       loadMonthlyStats();
       loadMonthlyHistory();
-      loadSesuPrices();
     } else {
       loginAttempts++;
       err.textContent = 'Forkert kode — prøv igen';
@@ -2478,7 +2481,6 @@ if (_hasToken) {
   loadBalance();
   loadMonthlyStats();
   loadMonthlyHistory();
-  loadSesuPrices();
 }
 setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadBalance(); }, 60000);
 setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadMonthlyStats(); }, 300000);
