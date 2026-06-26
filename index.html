@@ -1376,6 +1376,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       <div class="topbar-actions">
         <button class="btn btn-ghost btn-sm notif-btn" id="notif-bell" onclick="openNotifModal()" title="Notifikationer og lav-beholdning-advarsler">🔔<span class="notif-badge" id="notif-badge" style="display:none">0</span></button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
+        <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste">↓ CSV</button>
         <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
         <button class="btn btn-primary" onclick="openItemModal(null,null)">+ Tilføj vare</button>
@@ -1609,6 +1610,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
           <div style="font-size:13px;color:var(--ink-3)">Varer under minimumsbeholdning — klar til genbestilling</div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-ghost btn-sm" onclick="openOrderHistory()">📜 Historik</button>
+            <button class="btn btn-ghost btn-sm" onclick="autoCreatePOFromList()">⚡ Opret PO</button>
             <button class="btn btn-ghost btn-sm" onclick="openGenbestilling()">📧 Send ordre</button>
             <button class="btn btn-ghost btn-sm" onclick="copyShoppingList()">📋 Kopier liste</button>
             <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print</button>
@@ -1770,6 +1772,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 
 <div class="modal-bg" id="mb" onclick="if(event.target===this)closeModal()">
   <div class="modal" id="modal-box"></div>
+</div>
+<div id="img-zoom-bg" onclick="closeImgZoom()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;backdrop-filter:blur(4px)">
+  <img id="img-zoom-img" style="max-width:88vw;max-height:88vh;object-fit:contain;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)">
 </div>
 <div class="toast" id="toast"></div>
 
@@ -2051,6 +2056,13 @@ function renderOversigtsAdvarsler(){
 function renderOverview(){
   const tq = items.reduce((s,i)=>s+parseInt(i.qty||0),0);
   const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  // Gem snapshot + beregn trend
+  const snapKey = 'lager_snap';
+  let snap = null; try { snap = JSON.parse(localStorage.getItem(snapKey)); } catch(e){}
+  const nowSnap = { low: low.length, tq, ts: Date.now() };
+  const trendLow = snap && snap.ts < Date.now()-300000 ? (low.length < snap.low ? '↓' : low.length > snap.low ? '↑' : '') : '';
+  const trendTq  = snap && snap.ts < Date.now()-300000 ? (tq > snap.tq ? '↑' : tq < snap.tq ? '↓' : '') : '';
+  if(!snap || snap.ts < Date.now()-300000) try { localStorage.setItem(snapKey, JSON.stringify(nowSnap)); } catch(e){}
   const cats = [...new Set(items.map(i=>i.cat))].length;
 
   const MONTHS = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
@@ -2101,10 +2113,11 @@ function renderOverview(){
       </div>`;
   }
 
+  const trendStyle = (t,good) => t ? `style="font-size:13px;font-weight:700;margin-left:4px;color:${t==='↑'?(good?'var(--green)':'var(--red)'):(good?'var(--red)':'var(--green)')}"`:'';
   document.getElementById('stats-grid').innerHTML = `
     <div class="stat-card ${low.length?'red':''}">
       <div class="stat-label">Lav beholdning</div>
-      <div class="stat-value" style="color:${low.length?'var(--red)':'var(--ink)'}">${String(low.length).padStart(2,'0')}</div>
+      <div class="stat-value" style="color:${low.length?'var(--red)':'var(--ink)'}">${String(low.length).padStart(2,'0')}<span ${trendStyle(trendLow,false)}>${trendLow}</span></div>
       <div class="stat-detail">${low.length?'kræver genbestilling':'alt over minimum'}</div>
     </div>
     ${monthlyHtml}
@@ -2256,12 +2269,15 @@ function renderItems(){
       : `<td style="color:var(--ink-3);font-size:11px">—</td>`;
 
     const imgUrl = match?.image || '';
+    const dd = daekningsdage(i.id);
+    const ddHtml = dd===null ? '' : dd===0 ? '<div class="td-sub" style="color:var(--red)">udsolgt</div>' :
+      `<div class="td-sub" style="color:${dd<7?'var(--red)':dd<30?'var(--amber)':'var(--green)'}">~${Math.round(dd)}d</div>`;
     return `<tr>
       <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
       <td style="display:flex;align-items:center;gap:10px">
-        ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0" loading="lazy" onerror="this.style.display='none'">`:''}
+        ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0;cursor:zoom-in" loading="lazy" onerror="this.style.display='none'" onclick="openImgZoom('${esc(imgUrl)}')">`:''}
         <div>
-          <div class="td-name">${esc(i.name)}${i.bundle_json?'<span style="font-size:9px;background:rgba(99,102,241,.12);color:rgb(99,102,241);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700;vertical-align:middle">SÆT</span>':''}</div>
+          <div class="td-name">${esc(i.name)}${i.bundle_json?'<span style="font-size:9px;background:rgba(99,102,241,.12);color:rgb(99,102,241);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700;vertical-align:middle">SÆT</span>':''}${i.note?`<span title="${esc(i.note)}" style="font-size:11px;margin-left:4px;cursor:help;opacity:.6">📝</span>`:''}</div>
           ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
           ${bundleCap!==null?`<div class="td-sub">Kan fremstille: <strong>${bundleCap}</strong> sæt</div>`:''}
         </div>
@@ -2275,6 +2291,7 @@ function renderItems(){
         <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${esc(i.qty)}</span>
         ${low?'<span class="badge badge-red" style="margin-left:4px;font-size:9px">LAV</span>':''}
         ${reserved>0?`<div class="td-sub">${disponibel} dis. · ${reserved} res.</div>`:''}
+        ${ddHtml}
       </td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
       ${priceCell}
@@ -2606,8 +2623,16 @@ async function saveItem(id, edit){
     if(edit && origQty >= 0 && origQty !== newQty){
       jsonp({ action:'logMovement', item_id:p.id, item_name:name, from_qty:origQty, to_qty:newQty, note:'' }).catch(()=>{});
       histLoaded = false;
+      window._lastUndo = { id:p.id, name, origQty, newQty };
+    } else {
+      window._lastUndo = null;
     }
-    toast('Vare gemt'); await loadAll();
+    await loadAll();
+    if(window._lastUndo){
+      showUndoToast(`Antal ændret: ${origQty} → ${newQty}`);
+    } else {
+      toast('Vare gemt');
+    }
   }
   catch(e){ sync('err','Fejl'); showErr('Kunne ikke gemme: '+e.message); }
 }
@@ -4656,10 +4681,7 @@ function handleScan(raw, inOtaelling){
     setTimeout(()=>otJumpToItem(found.id), 150);
     toast('Fundet: '+found.name);
   } else {
-    showTab('varer');
-    document.getElementById('search').value = found.name;
-    renderItems();
-    setTimeout(()=>openItemModal(found.id, null), 200);
+    openQuickScanModal(found);
   }
 }
 
@@ -6395,6 +6417,220 @@ function renderAIMessages(){
 function scrollAI(){
   const el = document.getElementById('ai-messages');
   el.scrollTop = el.scrollHeight;
+}
+
+// ── FORTRYD (UNDO) ──
+let _undoTimer = null;
+function showUndoToast(msg){
+  const t = document.getElementById('toast');
+  t.innerHTML = `${esc(msg)} <button onclick="execUndo()" style="margin-left:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:12px;font-weight:600;padding:2px 10px;border-radius:5px;cursor:pointer;font-family:inherit">Fortryd</button>`;
+  t.classList.add('show');
+  clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(()=>{ t.classList.remove('show'); t.innerHTML=''; }, 8000);
+}
+async function execUndo(){
+  const u = window._lastUndo; if(!u) return;
+  window._lastUndo = null;
+  const t = document.getElementById('toast'); t.classList.remove('show'); t.innerHTML='';
+  const it = items.find(i=>i.id===u.id); if(!it) return;
+  sync('load','Fortrydes…');
+  try {
+    await jsonp({...it, action:'saveItem', qty:u.origQty});
+    jsonp({action:'logMovement',item_id:u.id,item_name:u.name,from_qty:u.newQty,to_qty:u.origQty,note:'Fortryd'}).catch(()=>{});
+    histLoaded=false;
+    toast(`Fortrudt: ${u.name} → ${u.origQty}`);
+    await loadAll();
+  } catch(e){ sync('err','Fejl'); showErr(e.message); }
+}
+
+// ── BILLEDE-ZOOM ──
+function openImgZoom(url){
+  if(!url) return;
+  const bg = document.getElementById('img-zoom-bg');
+  const img = document.getElementById('img-zoom-img');
+  img.src = url;
+  bg.style.display = 'flex';
+  document.addEventListener('keydown', _imgZoomEsc);
+}
+function closeImgZoom(){
+  document.getElementById('img-zoom-bg').style.display = 'none';
+  document.removeEventListener('keydown', _imgZoomEsc);
+}
+function _imgZoomEsc(e){ if(e.key==='Escape') closeImgZoom(); }
+
+// ── GENVEJSOVERSIGT ──
+function openShortcutsModal(){
+  const rows = [
+    ['⌘K / Ctrl+K', 'Åbn hurtigsøgning'],
+    ['?', 'Vis denne oversigt'],
+    ['Enter (i søgefelt)', 'Åbn AI-assistent'],
+    ['Esc', 'Luk panel / modal'],
+  ];
+  const navRows = [
+    ['▦ Oversigt', 'G derefter O'],
+    ['☰ Alle varer', 'G derefter V'],
+    ['🛒 Indkøbsliste', 'G derefter I'],
+    ['📦 Forsendelser', 'G derefter F'],
+    ['📊 Rapporter', 'G derefter R'],
+  ];
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">Tastaturgenveje</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="section-label">Generelt</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
+        ${rows.map(([k,d])=>`<tr><td style="padding:7px 0;width:45%"><kbd class="kbd">${k}</kbd></td><td style="color:var(--ink-2)">${d}</td></tr>`).join('')}
+      </table>
+      <div class="section-label">Navigation (ikke implementeret som genveje endnu)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${navRows.map(([k,d])=>`<tr><td style="padding:7px 0;width:45%;color:var(--ink-2)">${k}</td><td style="color:var(--ink-3);font-size:12px">${d}</td></tr>`).join('')}
+      </table>
+      <div style="margin-top:20px;padding:10px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:12px;color:var(--ink-3)">
+        Tip: Hold <kbd class="kbd">⌘K</kbd> for at søge på alt — varer, rum, leverandører og sider.
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+// Tilføj ? som genvej
+document.addEventListener('keydown', e => {
+  if(e.key==='?' && !e.target.matches('input,textarea,select')) openShortcutsModal();
+});
+
+// ── AUTO-PO FRA INDKØBSLISTE ──
+function autoCreatePOFromList(){
+  const low = items.filter(i=>(parseInt(i.qty||0)-parseInt(i.reserved||0))<parseInt(i.minQty||0));
+  if(!low.length){ toast('Ingen varer mangler — intet at oprette PO for'); return; }
+  if(!allLeverandoerer.length){ toast('Tilføj leverandører først under Drift → Leverandører'); return; }
+
+  // Gruppér efter leverandør
+  const bySupp = {};
+  low.forEach(i=>{
+    const key = i.supplier || '__none__';
+    if(!bySupp[key]) bySupp[key] = [];
+    bySupp[key].push(i);
+  });
+
+  const groups = Object.entries(bySupp);
+  const withSupp = groups.filter(([k])=>k!=='__none__');
+  const noSupp = bySupp['__none__'] || [];
+
+  if(!withSupp.length){
+    toast('Ingen varer har en tilknyttet leverandør — tilknyt leverandører til varerne først');
+    return;
+  }
+
+  // Vis valg-modal
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">Opret PO automatisk</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--ink-3);margin-bottom:16px">${withSupp.length} leverandørgruppe${withSupp.length===1?'':'r'} klar til PO${noSupp.length?` · ${noSupp.length} vare${noSupp.length===1?'':'r'} uden leverandør`:''}</div>
+      ${withSupp.map(([suppId, sitems])=>{
+        const lev = allLeverandoerer.find(l=>l.id===suppId);
+        const need = sitems.reduce((s,i)=>s+Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0)),0);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-light)">
+          <div>
+            <div style="font-weight:600;font-size:13px">${esc(lev?.name||suppId)}</div>
+            <div style="font-size:11px;color:var(--ink-3);margin-top:2px">${sitems.length} vare${sitems.length===1?'':'r'} · ${need} stk. i alt</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="closeModal();createAutoPO('${suppId}')">Opret PO</button>
+        </div>`;
+      }).join('')}
+      ${noSupp.length?`<div style="margin-top:12px;font-size:12px;color:var(--ink-3)">Varer uden leverandør: ${noSupp.map(i=>esc(i.name)).join(', ')}</div>`:''}
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+async function createAutoPO(suppId){
+  const low = items.filter(i=>(parseInt(i.qty||0)-parseInt(i.reserved||0))<parseInt(i.minQty||0) && i.supplier===suppId);
+  const lev = allLeverandoerer.find(l=>l.id===suppId);
+  const draftItems = low.map(i=>{
+    const need = Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));
+    const moq = parseInt(i.moq||0);
+    return { id:i.id, name:i.name, sku:i.sku||'', orderedQty: moq?Math.ceil(need/moq)*moq:need };
+  });
+  const expectedDate = lev?.leadDays
+    ? new Date(Date.now()+parseInt(lev.leadDays)*86400000).toISOString().slice(0,10)
+    : '';
+  const po = { action:'saveIndkoebsordre', id:uid(), supplier_id:suppId, supplier_name:lev?.name||'',
+    expected_date:expectedDate, notes:'Auto-oprettet fra indkøbsliste', status:'afventer',
+    items: draftItems };
+  sync('load','Opretter PO…');
+  try {
+    await jsonp(po);
+    poLoaded=false;
+    toast(`PO oprettet for ${lev?.name||suppId} · ${draftItems.length} vare${draftItems.length===1?'':'r'}`);
+    showTab('indkoebsordrer');
+  } catch(e){ sync('err','Fejl'); showErr(e.message); }
+}
+
+// ── QUICK SCAN MODAL ──
+function openQuickScanModal(item){
+  const cur = parseInt(item.qty||0);
+  const imgUrl = (sesuPricesLoaded?findSesuPrice(item.name,item.sku,item.imageUrl||'')?.image:'')||item.imageUrl||'';
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title" style="display:flex;align-items:center;gap:10px">
+        ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light)" onerror="this.style.display='none'">`:''}
+        ${esc(item.name)}
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="text-align:center;padding:8px 0 20px">
+        <div style="font-size:12px;color:var(--ink-3);margin-bottom:6px">Nuværende antal</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:40px;font-weight:600;color:var(--ink)" id="qs-cur">${cur}</div>
+        ${item.minQty?`<div style="font-size:11px;color:var(--ink-3);margin-top:4px">Min. ${item.minQty}</div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+        ${[['−10',-10],['−5',-5],['−1',-1],['+1',1],['+5',5],['+10',10]].map(([lbl,d])=>`
+          <button class="btn${d<0?' btn-danger':' btn-primary'}" onclick="qsAdj(${d},'${item.id}')" style="justify-content:center;font-size:15px;font-weight:700">${lbl}</button>
+        `).join('')}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="qs-custom" type="number" placeholder="Sæt til…" style="flex:1;border:1.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:14px;font-family:'IBM Plex Mono',monospace" onkeydown="if(event.key==='Enter')qsSet('${item.id}')">
+        <button class="btn btn-primary" onclick="qsSet('${item.id}')">Sæt</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal();showTab('varer');setTimeout(()=>{document.getElementById('search').value='${esc(item.name)}';renderItems();setTimeout(()=>openItemModal('${item.id}',null),100)},50)">Fuld redigering</button>
+      <button class="btn" onclick="closeModal()">Luk</button>
+    </div>`;
+  window._qsItem = item;
+  openModal();
+}
+window._qsItem=null;
+function qsAdj(delta, itemId){
+  const it = items.find(i=>i.id===itemId)||window._qsItem; if(!it) return;
+  const newVal = Math.max(0, parseInt(document.getElementById('qs-cur').textContent||0)+delta);
+  document.getElementById('qs-cur').textContent = newVal;
+}
+async function qsSet(itemId){
+  const customEl = document.getElementById('qs-custom');
+  const curEl = document.getElementById('qs-cur');
+  const it = items.find(i=>i.id===itemId)||window._qsItem; if(!it) return;
+  const newQty = customEl?.value!==''&&customEl?.value!==undefined
+    ? Math.max(0,parseInt(customEl.value)||0)
+    : parseInt(curEl?.textContent||it.qty||0);
+  const origQty = parseInt(it.qty||0);
+  if(newQty===origQty){ closeModal(); return; }
+  closeModal();
+  sync('load','Gemmer…');
+  try {
+    await jsonp({...it, action:'saveItem', qty:newQty});
+    jsonp({action:'logMovement',item_id:it.id,item_name:it.name,from_qty:origQty,to_qty:newQty,note:'Scan'}).catch(()=>{});
+    histLoaded=false;
+    window._lastUndo={id:it.id,name:it.name,origQty,newQty};
+    await loadAll();
+    showUndoToast(`${it.name}: ${origQty} → ${newQty}`);
+  } catch(e){ sync('err','Fejl'); showErr(e.message); }
 }
 </script>
 
