@@ -1331,6 +1331,8 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
           </div>
           <div class="filter-chips" id="filter-chips"></div>
           <button class="btn btn-ghost btn-sm" onclick="openScanner()" title="Scan stregkode eller QR-kode">📷 Scan</button>
+          <button class="btn btn-ghost btn-sm" onclick="openBatchQR()" title="Print QR-koder for alle varer">🖨 QR-print</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportVarerCSV()" title="Eksporter vareliste til CSV">⬇ CSV</button>
           <button class="btn btn-ghost btn-sm" id="sesu-btn" onclick="loadSesuPrices()" title="Hent aktuelle priser fra sesu.dk" style="white-space:nowrap">⟳ sesu.dk priser <span id="sesu-status" style="font-size:10px;color:var(--ink-3)"></span></button>
         </div>
         <div class="bulk-bar" id="bulk-bar">
@@ -1389,7 +1391,10 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
             </div>
             <button class="btn btn-ghost btn-sm" onclick="openScanner()">📷 Scan stregkode</button>
           </div>
-          <button id="ot-save-btn" class="btn btn-primary" onclick="saveOptaelling()" disabled>Gem ændringer</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="openSnapshotModal()">📸 Snapshots</button>
+            <button id="ot-save-btn" class="btn btn-primary" onclick="saveOptaelling()" disabled>Gem ændringer</button>
+          </div>
         </div>
         <div id="ot-summary" class="ot-summary-bar ot-clean">Alt stemmer — ingen ændringer endnu</div>
         <div class="card">
@@ -1507,14 +1512,22 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 
       <!-- HISTORIK -->
       <div id="tab-historik" class="view" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-          <div class="search-input-wrap" style="min-width:220px">
-            <span class="search-icon">⌕</span>
-            <input type="text" id="hist-search" placeholder="Filtrer på varenavn…" oninput="renderHistorik(histEntries)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div class="search-input-wrap" style="min-width:200px">
+              <span class="search-icon">⌕</span>
+              <input type="text" id="hist-search" placeholder="Filtrer på varenavn…" oninput="renderHistorik(histEntries)">
+            </div>
+            <input type="date" id="hist-from" title="Fra dato" oninput="renderHistorik(histEntries)" style="font-size:12px;padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--ink)">
+            <input type="date" id="hist-to" title="Til dato" oninput="renderHistorik(histEntries)" style="font-size:12px;padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--ink)">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hist-from').value='';document.getElementById('hist-to').value='';document.getElementById('hist-search').value='';renderHistorik(histEntries)">Ryd</button>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="histLoaded=false;loadHistorik()">⟳ Opdater</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="exportHistorikCSV()">⬇ CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="histLoaded=false;loadHistorik()">⟳ Opdater</button>
+          </div>
         </div>
-        <div id="hist-loading" style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px" style="display:none"></div>
+        <div id="hist-loading" style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px"></div>
         <div id="hist-content" class="card">
           <div class="table-wrap">
             <table>
@@ -1530,6 +1543,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
               </tbody>
             </table>
           </div>
+          <div id="hist-count" style="padding:8px 16px;font-size:11px;color:var(--ink-3)"></div>
         </div>
       </div>
 
@@ -3571,6 +3585,34 @@ async function renderRapporter(force){
       </div>
     </div>
 
+    <!-- Månedlig bevægelse diagram -->
+    ${(()=>{
+      const months=[];
+      const now=new Date();
+      for(let m=5;m>=0;m--){
+        const d=new Date(now.getFullYear(),now.getMonth()-m,1);
+        const label=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()];
+        const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+        const count=histEntries.filter(e=>e.ts.startsWith(key)).length;
+        months.push({label,count});
+      }
+      const maxCount=Math.max(...months.map(m=>m.count),1);
+      const bars=months.map(m=>{
+        const h=Math.round(m.count/maxCount*80);
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+          <div style="font-size:10px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace">${m.count||''}</div>
+          <div style="width:100%;height:80px;display:flex;align-items:flex-end">
+            <div style="width:100%;height:${h}px;background:var(--blue);border-radius:3px 3px 0 0;opacity:.8;transition:height .3s;min-height:${m.count?2:0}px"></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-3)">${m.label}</div>
+        </div>`;
+      }).join('');
+      return histEntries.length ? `<div class="card" style="margin-bottom:20px">
+        <div class="card-header"><span class="card-title">Lagerbevægelser — seneste 6 måneder</span><span style="font-size:11px;color:var(--ink-3)">${histEntries.length} total</span></div>
+        <div style="padding:16px 20px;display:flex;gap:6px;align-items:flex-end">${bars}</div>
+      </div>` : '';
+    })()}
+
     <!-- Top bevægere -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
       <div class="card">
@@ -3816,28 +3858,60 @@ function openGenbestilling(){
   const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
   if(!low.length){ toast('Ingen varer mangler — intet at bestille'); return; }
 
-  const savedEmail = localStorage.getItem('lager_order_email')||'';
   const today = new Date().toLocaleDateString('da-DK',{day:'numeric',month:'long',year:'numeric'});
+
+  // Group items by supplier for smart email auto-fill
+  const bySupplier = {};
+  low.forEach(i=>{
+    const key = i.supplier || '__none__';
+    if(!bySupplier[key]) bySupplier[key] = [];
+    bySupplier[key].push(i);
+  });
+  const supplierGroups = Object.keys(bySupplier);
+  const firstSupplierId = supplierGroups.find(k=>k!=='__none__');
+  const firstLev = firstSupplierId ? allLeverandoerer.find(l=>l.id===firstSupplierId) : null;
+  const savedEmail = localStorage.getItem('lager_order_email') || (firstLev?.email||'');
 
   const rows = low.map(i=>{
     const need = parseInt(i.minQty||0)-parseInt(i.qty||0);
     const match = sesuPricesLoaded ? findSesuPrice(i.name,i.sku) : null;
     const priceStr = match ? match.price.toLocaleString('da-DK')+' kr./stk' : '—';
-    return { name:i.name, sku:i.sku, need, priceStr, unitPrice:match?match.price:null };
+    return { name:i.name, sku:i.sku, need, priceStr, unitPrice:match?match.price:null, supplier:i.supplier };
   });
 
   const totalCost = rows.reduce((s,r)=>s+(r.unitPrice?r.unitPrice*r.need:0),0);
 
-  const bodyText = [
-    'Genbestilling '+today,
-    '',
-    rows.map(r=>`${r.name}${r.sku?' ('+r.sku+')':''}: ${r.need} stk — ${r.priceStr}`).join('\n'),
-    '',
-    totalCost > 0 ? 'Samlet est. kostpris: '+totalCost.toLocaleString('da-DK')+' kr.' : '',
-    '',
-    'Med venlig hilsen,',
-    'SESU Lagersystem'
-  ].filter(l=>l!==undefined).join('\n').trim();
+  // Build body grouped by supplier if multiple
+  let bodyLines = ['Genbestilling '+today, ''];
+  if(supplierGroups.length > 1 || firstSupplierId) {
+    supplierGroups.forEach(sid=>{
+      const lev = sid!=='__none__' ? allLeverandoerer.find(l=>l.id===sid) : null;
+      if(lev) bodyLines.push('--- '+lev.name+' ---');
+      bySupplier[sid].forEach(i=>{
+        const r = rows.find(r=>r.name===i.name);
+        bodyLines.push(`${i.name}${i.sku?' ('+i.sku+')':''}: ${r.need} stk — ${r.priceStr}`);
+      });
+      bodyLines.push('');
+    });
+  } else {
+    rows.forEach(r=>bodyLines.push(`${r.name}${r.sku?' ('+r.sku+')':''}: ${r.need} stk — ${r.priceStr}`));
+    bodyLines.push('');
+  }
+  if(totalCost > 0) bodyLines.push('Samlet est. kostpris: '+totalCost.toLocaleString('da-DK')+' kr.', '');
+  bodyLines.push('Med venlig hilsen,', 'SESU Lagersystem');
+  const bodyText = bodyLines.join('\n').trim();
+
+  // Supplier tabs for switching email
+  const supplierTabsHtml = supplierGroups.length > 1 ? `
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:var(--ink-3);margin-bottom:6px">Vælg leverandør-email:</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${supplierGroups.map(sid=>{
+          const lev=sid!=='__none__'?allLeverandoerer.find(l=>l.id===sid):null;
+          return lev?`<button class="btn btn-ghost btn-sm" onclick="document.getElementById('order-email').value='${esc(lev.email||'')}'">${esc(lev.name)}</button>`:'';
+        }).join('')}
+      </div>
+    </div>` : '';
 
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
@@ -3845,6 +3919,7 @@ function openGenbestilling(){
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
+      ${supplierTabsHtml}
       <div class="form-row">
         <div class="fg"><label>Modtager e-mail</label><input id="order-email" type="email" value="${esc(savedEmail)}" placeholder="leverandoer@eksempel.dk" oninput="localStorage.setItem('lager_order_email',this.value)"></div>
         <div class="fg"><label>Emne</label><input id="order-subject" value="Genbestilling ${today}"></div>
@@ -3875,6 +3950,198 @@ function sendOrderMail(){
   const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.location.href = mailto;
   closeModal();
+}
+
+// ── CSV EKSPORT ──
+function downloadCSV(filename, rows){
+  const csv=rows.map(r=>r.map(c=>{
+    const s=String(c??'');
+    return s.includes(',')||s.includes('"')||s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(',')).join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+}
+
+function exportVarerCSV(){
+  const header=['ID','Navn','Kategori','Rum','Hylde','Antal','Min.antal','SKU','Note','Oprettet','Leveringstid (dage)','Leverandør'];
+  const rows=[header,...items.map(i=>{
+    const r=rooms.find(r=>r.id===i.room);
+    const lev=allLeverandoerer.find(l=>l.id===i.supplier);
+    return [i.id,i.name,i.cat,r?r.name:'',i.shelf,i.qty,i.minQty,i.sku,i.note,i.created,i.leadDays,lev?lev.name:''];
+  })];
+  const date=new Date().toISOString().slice(0,10);
+  downloadCSV(`lager-varer-${date}.csv`,rows);
+  toast(`${items.length} varer eksporteret til CSV`);
+}
+
+function exportHistorikCSV(){
+  const fil=histEntries.filter(e=>{
+    const from=document.getElementById('hist-from')?.value;
+    const to=document.getElementById('hist-to')?.value;
+    const q=(document.getElementById('hist-search')?.value||'').toLowerCase();
+    if(q && !(e.item_name||'').toLowerCase().includes(q)) return false;
+    if(from && e.ts<from) return false;
+    if(to && e.ts>(to+'T23:59:59')) return false;
+    return true;
+  });
+  if(!fil.length){ toast('Ingen bevægelser at eksportere'); return; }
+  const header=['Tidspunkt','Vare-ID','Varenavn','Fra antal','Til antal','Delta','Note'];
+  const rows=[header,...fil.map(e=>{
+    let ts=''; try{ ts=new Date(e.ts).toLocaleString('da-DK'); }catch(x){}
+    return [ts,e.item_id,e.item_name,e.from_qty,e.to_qty,parseInt(e.to_qty||0)-parseInt(e.from_qty||0),e.note];
+  })];
+  const date=new Date().toISOString().slice(0,10);
+  downloadCSV(`lager-historik-${date}.csv`,rows);
+  toast(`${fil.length} bevægelser eksporteret til CSV`);
+}
+
+// ── BATCH QR-PRINT ──
+function openBatchQR(){
+  const fil=items.filter(i=>{
+    const q=(document.getElementById('search')?.value||'').toLowerCase();
+    return !q||i.name.toLowerCase().includes(q)||i.sku.toLowerCase().includes(q);
+  });
+  if(!fil.length){ toast('Ingen varer at vise'); return; }
+
+  const printWin=window.open('','_blank','width=900,height=700');
+  if(!printWin){ toast('Pop-up blokeret — tillad pop-ups for at printe QR-koder'); return; }
+
+  const QR_SIZE=140;
+  const cards=fil.map(i=>{
+    const r=rooms.find(r=>r.id===i.room);
+    const loc=r?r.name+(i.shelf?' · '+i.shelf:''):i.shelf||'';
+    const qrData='lager:'+i.id+'\n'+i.name;
+    const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(qrData)}`;
+    return `<div style="border:1px solid #ddd;border-radius:6px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;break-inside:avoid;page-break-inside:avoid">
+      <img src="${qrUrl}" width="${QR_SIZE}" height="${QR_SIZE}" loading="lazy">
+      <div style="font-size:11px;font-weight:700;text-align:center;max-width:${QR_SIZE}px;word-break:break-word">${i.name}</div>
+      ${i.sku?`<div style="font-family:monospace;font-size:10px;color:#666">${i.sku}</div>`:''}
+      ${loc?`<div style="font-size:10px;color:#888">${loc}</div>`:''}
+    </div>`;
+  }).join('');
+
+  printWin.document.write(`<!DOCTYPE html><html><head><title>QR-koder — ${fil.length} varer</title>
+  <style>body{margin:16px;font-family:sans-serif}h2{margin:0 0 16px;font-size:15px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(${QR_SIZE+28}px,1fr));gap:12px}
+  @media print{h2{display:none}.grid{gap:8px}}
+  </style></head><body>
+  <h2>QR-koder — ${fil.length} varer · <button onclick="window.print()" style="cursor:pointer">🖨 Print</button></h2>
+  <div class="grid">${cards}</div>
+  </body></html>`);
+  printWin.document.close();
+}
+
+// ── LAGEROPTÆLLING SNAPSHOTS ──
+function openSnapshotModal(){
+  const snapshots=JSON.parse(localStorage.getItem('ot_snapshots')||'[]');
+  const changed=Object.entries(stocktakeDraft).filter(([id,c])=>{const it=items.find(i=>i.id===id);return it&&c!==parseInt(it.qty||0);});
+
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📸 Optællings-snapshots</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="snap-name" placeholder="Navn (f.eks. Kvartalstælling Q2)" style="flex:1;border:1.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:13px;min-width:180px">
+        <button class="btn btn-primary btn-sm" onclick="saveSnapshot()">💾 Gem nuværende lager</button>
+      </div>
+      ${snapshots.length ? `<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px">${snapshots.length} gemte snapshot${snapshots.length===1?'':'s'}</div>
+      <div style="max-height:340px;overflow-y:auto">
+        ${snapshots.slice().reverse().map((s,ri)=>{
+          const i=snapshots.length-1-ri;
+          const diffs=s.data.filter(d=>{const it=items.find(x=>x.id===d.id);return it&&d.qty!==parseInt(it.qty||0);});
+          return `<div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div>
+                <div style="font-size:13px;font-weight:600">${esc(s.name)}</div>
+                <div style="font-size:11px;color:var(--ink-3)">${new Date(s.ts).toLocaleDateString('da-DK',{day:'numeric',month:'long',year:'numeric'})} · ${s.data.length} varer</div>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm" onclick="compareSnapshot(${i})">📊 Sammenlign</button>
+                <button class="btn btn-ghost btn-sm" onclick="exportSnapshotCSV(${i})">⬇ CSV</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteSnapshot(${i})">Slet</button>
+              </div>
+            </div>
+            ${diffs.length ? `<div style="font-size:11px;color:var(--amber)">⚠ ${diffs.length} vare${diffs.length===1?'':'r'} afviger fra nuværende lager</div>` : `<div style="font-size:11px;color:var(--green)">✓ Stemmer med nuværende lager</div>`}
+          </div>`;
+        }).join('')}
+      </div>` : '<div style="padding:20px;font-size:13px;color:var(--ink-3);text-align:center">Ingen snapshots endnu — gem det nuværende lager for at oprette det første</div>'}
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+function saveSnapshot(){
+  const name=document.getElementById('snap-name')?.value.trim();
+  if(!name){ toast('Angiv et navn til snapshotet'); return; }
+  const snapshots=JSON.parse(localStorage.getItem('ot_snapshots')||'[]');
+  snapshots.push({ name, ts:new Date().toISOString(), data:items.map(i=>({id:i.id,name:i.name,qty:parseInt(i.qty||0)})) });
+  localStorage.setItem('ot_snapshots',JSON.stringify(snapshots));
+  toast(`Snapshot "${name}" gemt — ${items.length} varer`);
+  openSnapshotModal();
+}
+
+function deleteSnapshot(idx){
+  if(!confirm('Slet dette snapshot?')) return;
+  const snapshots=JSON.parse(localStorage.getItem('ot_snapshots')||'[]');
+  snapshots.splice(idx,1);
+  localStorage.setItem('ot_snapshots',JSON.stringify(snapshots));
+  openSnapshotModal();
+}
+
+function compareSnapshot(idx){
+  const snapshots=JSON.parse(localStorage.getItem('ot_snapshots')||'[]');
+  const snap=snapshots[idx]; if(!snap) return;
+  const diffs=snap.data.map(d=>{
+    const cur=items.find(i=>i.id===d.id);
+    const curQty=cur?parseInt(cur.qty||0):null;
+    const delta=curQty!==null?curQty-d.qty:null;
+    return {...d,curQty,delta};
+  }).filter(d=>d.delta!==0&&d.delta!==null);
+
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📊 Sammenlign: ${esc(snap.name)}</div>
+      <button class="modal-close" onclick="openSnapshotModal()">←</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Snapshot fra ${new Date(snap.ts).toLocaleDateString('da-DK',{day:'numeric',month:'long',year:'numeric'})}</div>
+      ${!diffs.length ? `<div style="padding:20px;text-align:center;font-size:13px;color:var(--green)">✓ Ingen afvigelser — lageret stemmer præcis overens med snapshot</div>` :
+      `<div style="font-size:12px;color:var(--ink-3);margin-bottom:10px">${diffs.length} afvigelse${diffs.length===1?'':'r'}</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Vare</th><th style="width:14%">Snapshot</th><th style="width:14%">Nuværende</th><th style="width:10%">Δ</th></tr></thead>
+        <tbody>${diffs.map(d=>{
+          const dH=d.delta>0?`<span class="delta-up">+${d.delta}</span>`:`<span class="delta-down">${d.delta}</span>`;
+          return `<tr>
+            <td><div class="td-name">${esc(d.name)}</div></td>
+            <td style="font-family:'IBM Plex Mono',monospace">${d.qty}</td>
+            <td style="font-family:'IBM Plex Mono',monospace">${d.curQty}</td>
+            <td>${dH}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`}
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="exportSnapshotCSV(${idx})">⬇ CSV</button>
+      <button class="btn btn-primary" onclick="closeModal()">Luk</button>
+    </div>`;
+  openModal();
+}
+
+function exportSnapshotCSV(idx){
+  const snapshots=JSON.parse(localStorage.getItem('ot_snapshots')||'[]');
+  const snap=snapshots[idx]; if(!snap) return;
+  const header=['Vare-ID','Varenavn','Antal ved snapshot','Nuværende antal','Delta'];
+  const rows=[header,...snap.data.map(d=>{
+    const cur=items.find(i=>i.id===d.id);
+    const curQty=cur?parseInt(cur.qty||0):'(slettet)';
+    const delta=typeof curQty==='number'?curQty-d.qty:'—';
+    return [d.id,d.name,d.qty,curQty,delta];
+  })];
+  const date=new Date(snap.ts).toISOString().slice(0,10);
+  downloadCSV(`snapshot-${snap.name.replace(/[^a-z0-9æøå]/gi,'-')}-${date}.csv`,rows);
+  toast('Snapshot eksporteret til CSV');
 }
 
 // ── INDKØBSLISTE ──
@@ -3996,14 +4263,22 @@ async function loadHistorik(){
 
 function renderHistorik(entries){
   const q=(document.getElementById('hist-search')?.value||'').toLowerCase();
-  const fil=q?entries.filter(e=>(e.item_name||'').toLowerCase().includes(q)):entries;
+  const fromVal=document.getElementById('hist-from')?.value;
+  const toVal=document.getElementById('hist-to')?.value;
+  let fil=entries;
+  if(q) fil=fil.filter(e=>(e.item_name||'').toLowerCase().includes(q));
+  if(fromVal) fil=fil.filter(e=>e.ts>=fromVal);
+  if(toVal) fil=fil.filter(e=>e.ts<=(toVal+'T23:59:59'));
   const tbody=document.getElementById('hist-tbody');
+  const countEl=document.getElementById('hist-count');
   if(!tbody) return;
   if(!fil.length){
-    tbody.innerHTML='<tr><td colspan="5"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">'+(entries.length?'Ingen resultater for din søgning':'Ingen bevægelser endnu — begynd at redigere varer')+'</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="5"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">'+(entries.length?'Ingen resultater — prøv at ændre søgning eller dato':'Ingen bevægelser endnu — begynd at redigere varer')+'</div></td></tr>';
+    if(countEl) countEl.textContent='';
     return;
   }
-  tbody.innerHTML=fil.slice(0,200).map(e=>{
+  const shown=fil.slice(0,300);
+  tbody.innerHTML=shown.map(e=>{
     const from=parseInt(e.from_qty||0), to=parseInt(e.to_qty||0), delta=to-from;
     const deltaHtml=delta>0?`<span class="delta-up">+${delta}</span>`:delta<0?`<span class="delta-down">${delta}</span>`:`<span class="badge badge-gray">±0</span>`;
     let ts='—';
@@ -4017,6 +4292,7 @@ function renderHistorik(entries){
       <td style="font-size:12px;color:var(--ink-3)">${esc(e.note||'')}</td>
     </tr>`;
   }).join('');
+  if(countEl) countEl.textContent=fil.length>300?`Viser 300 af ${fil.length} bevægelser`:`${fil.length} bevægelse${fil.length===1?'':'r'}`;
 }
 
 // ── SKABELONER ──
