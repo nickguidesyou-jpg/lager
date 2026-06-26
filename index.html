@@ -1178,10 +1178,16 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 }
 /* ── PRINT INDKØBSLISTE ── */
 @media print {
-  .sidebar, .mobile-nav, .topbar, .ai-fab, .ai-panel { display:none !important; }
-  .main { margin-left:0 !important; }
+  .sidebar, .mobile-nav, .topbar, .ai-fab, .ai-panel, #cmdk-overlay, .no-print { display:none !important; }
+  .main { margin-left:0 !important; padding:0 !important; }
   .btn { display:none !important; }
   .stats-grid { grid-template-columns:repeat(3,1fr) !important; }
+  .view { display:block !important; }
+  .content { padding:0 !important; }
+  body { background:white !important; }
+  .card { box-shadow:none !important; border:1px solid #ddd !important; break-inside:avoid; }
+  .table-wrap { overflow:visible !important; }
+  @page { margin: 1.5cm; }
 }
 </style>
 </head>
@@ -1705,6 +1711,17 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 </div>
 
 <!-- MODAL -->
+<div id="cmdk-overlay" onclick="if(event.target===this)closeCmdk()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:flex-start;justify-content:center;padding-top:72px">
+  <div style="width:min(540px,92vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);overflow:hidden">
+    <div style="display:flex;align-items:center;padding:0 16px;border-bottom:1px solid var(--border)">
+      <span style="font-size:16px;opacity:.35;margin-right:8px">⌕</span>
+      <input id="cmdk-input" placeholder="Søg varer, leverandører, rum…" autocomplete="off" style="flex:1;border:none;outline:none;padding:14px 0;font-size:15px;font-family:inherit;background:transparent;color:var(--ink)" oninput="searchCmdk(this.value)" onkeydown="handleCmdkKey(event)">
+      <span style="font-size:10px;color:var(--ink-3);background:var(--surface-2);padding:2px 6px;border-radius:4px;margin-left:8px">ESC</span>
+    </div>
+    <div id="cmdk-results" style="max-height:400px;overflow-y:auto"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="mb" onclick="if(event.target===this)closeModal()">
   <div class="modal" id="modal-box"></div>
 </div>
@@ -1800,8 +1817,9 @@ async function loadSesuPrices() {
         if(typeof v === 'object' && v !== null){
           sesuPrices[sku] = v.price;
           if(v.url) sesuUrls[sku] = v.url;
-          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name, url: v.url || '' };
-          sesuProducts.push({ sku, price: v.price, name: v.name || sku, url: v.url || '' });
+          if(v.image) sesuImages[sku] = v.image;
+          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name, url: v.url || '', image: v.image || '' };
+          sesuProducts.push({ sku, price: v.price, name: v.name || sku, url: v.url || '', image: v.image || '' });
         } else {
           sesuPrices[sku] = v;
           sesuProducts.push({ sku, price: v, name: sku, url: '' });
@@ -1856,20 +1874,19 @@ function productCategory(n){
 function findSesuPrice(itemName, itemSku){
   // 1) exact SKU match
   const sku = (itemSku||'').trim();
-  if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], url: sesuUrls[sku]||'', how:'sku' };
+  if(sku && sesuPrices[sku] !== undefined) return { price: sesuPrices[sku], url: sesuUrls[sku]||'', image: sesuImages[sku]||'', how:'sku' };
   // 2) name-based match via word overlap (Jaccard ≥ 0.28)
   const nn = normName(itemName);
   if(!nn) return null;
-  if(sesuByName[nn]) return { price: sesuByName[nn].price, url: sesuByName[nn].url||'', sesuName: sesuByName[nn].name, how:'name' };
+  if(sesuByName[nn]) return { price: sesuByName[nn].price, url: sesuByName[nn].url||'', image: sesuByName[nn].image||'', sesuName: sesuByName[nn].name, how:'name' };
   const itemCat = productCategory(itemName);
   let bestScore = 0, bestEntry = null;
   for(const sn in sesuByName){
-    // Only match within same product category to prevent hairpin→bordben cross-matches
     if(itemCat !== 'other' && productCategory(sesuByName[sn].name) !== itemCat) continue;
     const score = wordScore(nn, sn);
     if(score > bestScore){ bestScore = score; bestEntry = sesuByName[sn]; }
   }
-  if(bestScore >= 0.28 && bestEntry) return { price: bestEntry.price, url: bestEntry.url||'', sesuName: bestEntry.name, how:'name' };
+  if(bestScore >= 0.28 && bestEntry) return { price: bestEntry.price, url: bestEntry.url||'', image: bestEntry.image||'', sesuName: bestEntry.name, how:'name' };
   return null;
 }
 
@@ -2158,11 +2175,15 @@ function renderItems(){
       ? `<td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--blue)">${lineValue.toLocaleString('da-DK')} kr.</td>`
       : `<td style="color:var(--ink-3);font-size:11px">—</td>`;
 
+    const imgUrl = match?.image || '';
     return `<tr>
       <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
-      <td>
-        <div class="td-name">${esc(i.name)}</div>
-        ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
+      <td style="display:flex;align-items:center;gap:10px">
+        ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0" loading="lazy" onerror="this.style.display='none'">`:''}
+        <div>
+          <div class="td-name">${esc(i.name)}</div>
+          ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
+        </div>
       </td>
       <td>${catBadge(i.cat)}</td>
       <td>
@@ -2269,23 +2290,28 @@ function renderRooms(){
   }
 }
 
-function openItemModal(id, preRoom){
-  const it = id ? items.find(i=>i.id===id) : null;
-  const nm=it?it.name:'', cat=it?it.cat:'Bordben';
+function openItemModal(id, preRoom, tpl){
+  const it = id ? items.find(i=>i.id===id) : (tpl || null);
+  const isTpl = !id && !!tpl;
+  const nm=it?(isTpl?it.name+' (kopi)':it.name):'', cat=it?it.cat:'Bordben';
   const room=it?it.room:(preRoom||rooms[0]?.id||'');
-  const shelf=it?it.shelf:'', qty=it?parseInt(it.qty):0;
+  const shelf=it?it.shelf:'', qty=isTpl?0:(it?parseInt(it.qty):0);
   const minQ=it?parseInt(it.minQty):10, sku=it?it.sku:'', note=it?it.note:'';
   const lead=it?parseInt(it.leadDays||0):0;
   const supplier=it?it.supplier||'':'';
   const costPrice=it?it.costPrice||'':'';
   const moq=it?it.moq||'':'';
+  const sesuImg = sesuPricesLoaded ? (findSesuPrice(nm, sku)?.image||'') : '';
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
-      <div class="modal-title">${id?'Rediger vare':'Tilføj ny vare'}</div>
+      <div class="modal-title">${id?'Rediger vare':isTpl?'Kopiér vare':'Tilføj ny vare'}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="fg"><label>Varenavn</label><input id="f-name" value="${esc(nm)}" placeholder="F.eks. Koniske bordben 71cm" autofocus></div>
+      <div class="fg" style="display:flex;gap:12px;align-items:flex-start">
+        ${sesuImg?`<img src="${esc(sesuImg)}" style="width:64px;height:64px;object-fit:contain;border-radius:6px;border:1px solid var(--border);flex-shrink:0;margin-top:20px" loading="lazy" onerror="this.style.display='none'">`:''}
+        <div style="flex:1"><label>Varenavn</label><input id="f-name" value="${esc(nm)}" placeholder="F.eks. Koniske bordben 71cm" autofocus></div>
+      </div>
       <div class="form-row">
         <div class="fg"><label>Kategori</label><select id="f-cat">${CATS.map(c=>`<option${c===cat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
         <div class="fg"><label>Varenr. / SKU</label><input id="f-sku" value="${esc(sku)}" placeholder="BB-71-K"></div>
@@ -2315,6 +2341,7 @@ function openItemModal(id, preRoom){
       ${id ? '<div id="item-prognose"></div>' : ''}
     </div>
     <div class="modal-foot">
+      ${id?`<button class="btn btn-ghost btn-sm" onclick="duplicateItem('${id}')">⧉ Kopiér vare</button>`:''}
       <button class="btn" onclick="closeModal()">Annuller</button>
       <button class="btn btn-primary" onclick="saveItem('${id||''}',${!!id})">${id?'Gem ændringer':'Tilføj vare'}</button>
     </div>`;
@@ -2323,6 +2350,12 @@ function openItemModal(id, preRoom){
 }
 
 function adjQ(d){ const i=document.getElementById('f-qty'), v=Math.max(0,parseInt(i.value||0)+d); i.value=v; document.getElementById('q-d').textContent=v; }
+
+function duplicateItem(id){
+  const it=items.find(i=>i.id===id); if(!it) return;
+  closeModal();
+  openItemModal(null, null, it);
+}
 
 function suggestMinQty(itemId){
   const leadEl=document.getElementById('f-lead');
@@ -3097,6 +3130,7 @@ let allPriceStats = {};
 let sesuPrices = {};
 let sesuByName = {};
 let sesuUrls = {};   // sku → sesu.dk product URL
+let sesuImages = {}; // sku → sesu.dk product image URL
 let sesuProducts = []; // [{sku, price, name}] sorted by name
 let sesuPricesLoaded = false;
 
@@ -3259,6 +3293,125 @@ async function doLogin() {
     err.textContent = 'Serverfejl — prøv igen';
     setTimeout(() => err.textContent = '', 2500);
   }
+}
+
+// ── CMD+K GLOBAL SØGNING ──
+let _cmdkIdx = -1;
+
+document.addEventListener('keydown', e => {
+  if((e.metaKey||e.ctrlKey) && e.key==='k'){ e.preventDefault(); toggleCmdk(); }
+  const overlay=document.getElementById('cmdk-overlay');
+  if(!overlay||overlay.style.display==='none') return;
+  if(e.key==='Escape') closeCmdk();
+  else if(e.key==='ArrowDown'){ e.preventDefault(); moveCmdk(1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); moveCmdk(-1); }
+});
+
+function handleCmdkKey(e){
+  if(e.key==='Enter'){ e.preventDefault(); selectCmdk(); }
+}
+
+function toggleCmdk(){
+  const overlay=document.getElementById('cmdk-overlay');
+  if(!overlay) return;
+  if(overlay.style.display==='none'||!overlay.style.display){
+    overlay.style.display='flex';
+    const inp=document.getElementById('cmdk-input');
+    inp.value=''; inp.focus();
+    _cmdkIdx=-1;
+    renderCmdkDefault();
+  } else { closeCmdk(); }
+}
+
+function closeCmdk(){
+  const overlay=document.getElementById('cmdk-overlay');
+  if(overlay) overlay.style.display='none';
+}
+
+function renderCmdkDefault(){
+  const shortcuts=[
+    {icon:'▦',label:'Oversigt',action:'tab:oversigt'},
+    {icon:'☰',label:'Alle varer',action:'tab:varer'},
+    {icon:'🛒',label:'Indkøbsliste',action:'tab:indkob'},
+    {icon:'📋',label:'Indkøbsordrer',action:'tab:indkoebsordrer'},
+    {icon:'📊',label:'Rapporter',action:'tab:rapporter'},
+    {icon:'+',label:'Tilføj ny vare',action:'new-item'},
+  ];
+  document.getElementById('cmdk-results').innerHTML=
+    `<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Genveje</div>`+
+    shortcuts.map((s,i)=>cmdkRow(s.icon,s.label,s.action,i)).join('');
+  _cmdkIdx=-1;
+}
+
+function cmdkRow(icon,label,action,idx){
+  return `<div class="cmdk-row" data-action="${esc(action)}" data-idx="${idx}" onclick="execCmdk('${esc(action)}')" onmouseenter="hoverCmdk(${idx})" style="display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;border-bottom:1px solid var(--border-light);font-size:13px;transition:background .08s">
+    <span style="opacity:.45;width:18px;text-align:center">${icon}</span>
+    <span style="flex:1">${label}</span>
+  </div>`;
+}
+
+function hoverCmdk(idx){
+  document.querySelectorAll('.cmdk-row').forEach((el,i)=>{
+    el.style.background=i===idx?'var(--blue-dim)':'';
+  });
+  _cmdkIdx=idx;
+}
+
+function moveCmdk(dir){
+  const rows=document.querySelectorAll('.cmdk-row');
+  if(!rows.length) return;
+  _cmdkIdx=Math.max(0,Math.min(rows.length-1,_cmdkIdx+dir));
+  rows.forEach((el,i)=>el.style.background=i===_cmdkIdx?'var(--blue-dim)':'');
+  rows[_cmdkIdx]?.scrollIntoView({block:'nearest'});
+}
+
+function selectCmdk(){
+  const rows=document.querySelectorAll('.cmdk-row');
+  const el=_cmdkIdx>=0?rows[_cmdkIdx]:rows[0];
+  if(el) execCmdk(el.dataset.action);
+}
+
+function execCmdk(action){
+  closeCmdk();
+  if(!action) return;
+  if(action.startsWith('tab:')) showTab(action.slice(4));
+  else if(action==='new-item') openItemModal(null,null);
+  else if(action.startsWith('item:')) openItemModal(action.slice(5),null);
+  else if(action.startsWith('lev:')){ showTab('leverandoerer'); setTimeout(()=>openLevModal(action.slice(4)),150); }
+  else if(action.startsWith('room:')) showTab('rum');
+}
+
+function searchCmdk(q){
+  _cmdkIdx=-1;
+  if(!q.trim()){ renderCmdkDefault(); return; }
+  const ql=q.toLowerCase();
+  const itemHits=items.filter(i=>i.name.toLowerCase().includes(ql)||(i.sku&&i.sku.toLowerCase().includes(ql))).slice(0,7);
+  const levHits=allLeverandoerer.filter(l=>l.name.toLowerCase().includes(ql)).slice(0,3);
+  const roomHits=rooms.filter(r=>r.name.toLowerCase().includes(ql)).slice(0,3);
+  let html='', idx=0;
+  if(itemHits.length){
+    html+=`<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Varer</div>`;
+    html+=itemHits.map(i=>{
+      const low=parseInt(i.qty||0)<parseInt(i.minQty||0);
+      const img=sesuPricesLoaded?(findSesuPrice(i.name,i.sku)?.image||''):'';
+      const row=`<div class="cmdk-row" data-action="item:${i.id}" data-idx="${idx}" onclick="execCmdk('item:${i.id}')" onmouseenter="hoverCmdk(${idx})" style="display:flex;align-items:center;gap:10px;padding:9px 18px;cursor:pointer;border-bottom:1px solid var(--border-light);font-size:13px;transition:background .08s">
+        ${img?`<img src="${esc(img)}" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0" loading="lazy" onerror="this.style.display='none'">`:'<span style="width:28px;text-align:center;opacity:.35">📦</span>'}
+        <span style="flex:1">${esc(i.name)}${i.sku?` <span style="font-size:10px;color:var(--ink-3)">${esc(i.sku)}</span>`:''}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${low?'var(--red)':'var(--ink-3)'}">${i.qty} stk.</span>
+      </div>`;
+      idx++; return row;
+    }).join('');
+  }
+  if(roomHits.length){
+    html+=`<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Rum</div>`;
+    html+=roomHits.map(r=>{ const row=cmdkRow('⬡',r.name,'room:'+r.id,idx); idx++; return row; }).join('');
+  }
+  if(levHits.length){
+    html+=`<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Leverandører</div>`;
+    html+=levHits.map(l=>{ const row=cmdkRow('🏢',l.name,'lev:'+l.id,idx); idx++; return row; }).join('');
+  }
+  if(!html) html=`<div style="padding:24px;text-align:center;font-size:13px;color:var(--ink-3)">Ingen resultater for "${esc(q)}"</div>`;
+  document.getElementById('cmdk-results').innerHTML=html;
 }
 
 function doLogout() {
@@ -3688,14 +3841,28 @@ function renderLeverandoerer(){
   }
   el.innerHTML=allLeverandoerer.map(l=>{
     const itemCount=items.filter(i=>i.supplier===l.id).length;
+    // Leverandør-performance fra lukkede PO'er
+    const levPOs=poLoaded?allPO.filter(p=>p.supplier_id===l.id):[];
+    const closedPOs=levPOs.filter(p=>p.status==='lukket'&&p.received_date&&p.expected_date);
+    const onTime=closedPOs.filter(p=>p.received_date<=p.expected_date).length;
+    const late=closedPOs.filter(p=>p.received_date>p.expected_date);
+    const avgDelay=late.length?Math.round(late.reduce((s,p)=>{
+      return s+(new Date(p.received_date)-new Date(p.expected_date))/86400000;
+    },0)/late.length):0;
+    const perfBadge=closedPOs.length?
+      (onTime===closedPOs.length
+        ?`<span style="font-size:10px;background:rgba(30,160,90,.1);color:var(--green);border-radius:4px;padding:2px 6px;font-weight:600">✓ Til tiden (${closedPOs.length})</span>`
+        :`<span style="font-size:10px;background:rgba(200,100,0,.08);color:var(--amber);border-radius:4px;padding:2px 6px;font-weight:600">⚠ ${onTime}/${closedPOs.length} til tiden · gns. ${avgDelay}d forsinkelse</span>`)
+      :'';
     return `<div class="list-row">
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${esc(l.name)}</div>
-        <div style="display:flex;gap:12px;margin-top:3px;flex-wrap:wrap">
+        <div style="display:flex;gap:12px;margin-top:3px;flex-wrap:wrap;align-items:center">
           ${l.email?`<span style="font-size:11px;color:var(--blue)">${esc(l.email)}</span>`:''}
           ${l.phone?`<span style="font-size:11px;color:var(--ink-3)">${esc(l.phone)}</span>`:''}
           ${l.website?`<a href="${esc(l.website)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--blue)">${esc(l.website)}</a>`:''}
           ${l.leadDays?`<span style="font-size:11px;color:var(--ink-3)">${esc(l.leadDays)} dages leveringstid</span>`:''}
+          ${perfBadge}
         </div>
         ${l.notes?`<div style="font-size:11px;color:var(--ink-3);margin-top:3px">${esc(l.notes)}</div>`:''}
       </div>
@@ -4840,6 +5007,7 @@ function openPOModal(id){
     <div class="modal-foot">
       ${id&&po.status!=='lukket'?`<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="if(confirm('Annuller ordren?'))savePOStatus('${id}','annulleret')">Annuller ordre</button>`:''}
       ${(()=>{if(!id) return '';const lev=allLeverandoerer.find(l=>l.id===po.supplier_id);return lev?.email?`<button class="btn btn-ghost btn-sm" onclick="sendPOEmailFn('${id}')">📧 Send til leverandør</button>`:''})()}
+      ${id?`<button class="btn btn-ghost btn-sm no-print" onclick="window.print()">🖨 Print</button>`:''}
       <button class="btn" onclick="closeModal()">Luk</button>
       <button class="btn btn-primary" onclick="savePOFn('${id||''}',draftItems)">Gem ordre</button>
     </div>`;
@@ -4955,7 +5123,8 @@ async function confirmReceivePO(id, poItems){
     const allReceived=updatedItems.every(e=>e.receivedQty>=e.orderedQty);
     const anyReceived=updatedItems.some(e=>(e.receivedQty||0)>0);
     const newStatus=allReceived?'lukket':anyReceived?'delvist':'åben';
-    await jsonp({action:'saveIndkoebsordre',...po,status:newStatus,items_json:JSON.stringify(updatedItems)});
+    const receivedDate=allReceived?new Date().toISOString().slice(0,10):(po.received_date||'');
+    await jsonp({action:'saveIndkoebsordre',...po,status:newStatus,items_json:JSON.stringify(updatedItems),received_date:receivedDate});
 
     histLoaded=false;
     poLoaded=false;
