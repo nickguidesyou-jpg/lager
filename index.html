@@ -2013,7 +2013,7 @@ function renderShipments(ships){
     }[carrier] || safeLink) : null;
     // Use manually-saved status (Shipmondo API returns null for state)
     const pkg = shipPackageContents[String(s.id)] || {};
-    const manualStatus = pkg.status || '';
+    const manualStatus = pkg.status || localStorage.getItem('ship_status_'+String(s.id)) || '';
     const stateRaw = manualStatus || s.state || 'created';
     const stateLabel = {
       'created':'Oprettet','in_transit':'Under transport','transit':'Under transport',
@@ -2062,17 +2062,19 @@ function renderShipments(ships){
   }).join('');
 }
 
-async function setShipStatus(shipId, status){
+function setShipStatus(shipId, status){
   const sid = String(shipId);
-  // Map stateClass back to API-style value for storage
   const statusMap = {created:'created', transit:'in_transit', delivered:'delivered', returned:'returned'};
   const stored = statusMap[status] || status;
-  try {
-    await jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored });
-    if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
-    shipPackageContents[sid].status = stored;
-    renderShipments(allShips);
-  } catch(e) { toast('Fejl: '+e.message); }
+
+  // Persist in localStorage immediately — no waiting for backend
+  localStorage.setItem('ship_status_'+sid, stored);
+  if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
+  shipPackageContents[sid].status = stored;
+  renderShipments(allShips);
+
+  // Sync to Sheets in background
+  jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored }).catch(()=>{});
 }
 
 async function printLabel(id){
