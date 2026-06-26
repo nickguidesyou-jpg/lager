@@ -1832,6 +1832,7 @@ function showTab(t){
   document.getElementById('page-title').textContent = TITLES[t] || t;
   if(t === 'forsendelser' && !shipLoaded) loadShipments();
   if(t === 'priser' && !prisLoaded) loadPriser();
+  if(t === 'varer' && !sesuPricesLoaded) loadSesuPrices();
 }
 
 function openModal(){ document.getElementById('mb').classList.add('open'); }
