@@ -1332,9 +1332,11 @@ async function loadSesuPrices() {
       renderItems();
     } else {
       if(statusEl) statusEl.textContent = '— fejl';
+      _sesuPricesPromise = null; // allow retry
     }
   } catch(e) {
     if(statusEl) statusEl.textContent = '— timeout';
+    _sesuPricesPromise = null; // allow retry
   }
   if(btn) btn.disabled = false;
   })();
@@ -1395,9 +1397,7 @@ async function assignSesuSku(itemId, sku) {
   const item = items.find(i=>i.id===itemId);
   if(!item) return;
   item.sku = sku;
-  const token = sessionStorage.getItem('lager_token')||'';
-  const p = {...item, token, action:'saveItem'};
-  await jsonp(LAGER_API+'?'+new URLSearchParams(p));
+  await jsonp({...item, action:'saveItem'});
   renderItems();
 }
 
@@ -1625,7 +1625,7 @@ function renderItems(){
     const priceCell = unitPrice !== null
       ? `<td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600"${priceTitle}>${unitPrice.toLocaleString('da-DK')} kr.${match.how==='name'?'<span style="font-size:9px;color:var(--ink-3);margin-left:3px">≈</span>':''}</td>`
       : sesuPricesLoaded && sesuProducts.length
-        ? `<td><select style="font-size:11px;max-width:180px;border:1px solid var(--ink-4);border-radius:4px;padding:2px 4px;background:var(--bg);color:var(--ink-2)" onchange="assignSesuSku('${i.id}',this.value)">${sesuOpts}</select></td>`
+        ? `<td><select style="font-size:11px;max-width:180px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--white);color:var(--ink-2)" onchange="assignSesuSku('${i.id}',this.value)">${sesuOpts}</select></td>`
         : `<td style="color:var(--ink-3);font-size:11px">…</td>`;
 
     const valueCell = lineValue !== null
@@ -2222,10 +2222,10 @@ async function openNewShipmentModal(){
   let productOpts = '';
   if(dkProducts.length){
     Object.keys(pgCarriers).sort().forEach(function(cn){
-      productOpts += '<optgroup label="' + cn + '">';
+      productOpts += '<optgroup label="' + esc(cn) + '">';
       pgCarriers[cn].forEach(function(p){
-        const val = p.code||p.product_code||'';
-        const lbl = p.name||val;
+        const val = esc(p.code||p.product_code||'');
+        const lbl = esc(p.name||p.code||p.product_code||'');
         productOpts += '<option value="' + val + '">' + lbl + '</option>';
       });
       productOpts += '</optgroup>';
@@ -2364,13 +2364,16 @@ async function toggleLagervaerdi() {
   }
   // Prompt for PIN via mini modal
   document.getElementById('modal-box').innerHTML = `
-    <div class="modal-title">Lagerværdi — indtast kode</div>
-    <div style="margin:16px 0">
-      <input type="password" id="lv-pin-input" class="form-input" placeholder="Adgangskode" style="width:100%;font-size:16px;letter-spacing:.1em" onkeydown="if(event.key==='Enter')confirmLvPin()">
+    <div class="modal-head">
+      <div class="modal-title">Lagerværdi — indtast kode</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
-    <div id="lv-pin-err" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-ghost" onclick="closeModal()">Annuller</button>
+    <div class="modal-body">
+      <input type="password" id="lv-pin-input" placeholder="Adgangskode" style="width:100%;font-size:15px;letter-spacing:.1em;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;background:var(--white);color:var(--ink)" onkeydown="if(event.key==='Enter')confirmLvPin()">
+      <div id="lv-pin-err" style="color:var(--red);font-size:12px;min-height:16px;margin-top:8px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
       <button class="btn btn-primary" onclick="confirmLvPin()">Vis beløb</button>
     </div>`;
   openModal();
@@ -2830,7 +2833,7 @@ function openPackageModal(shipId){
 
     if(itemsArea) itemsArea.innerHTML = rows.length ? rowsHtml : '<div style="color:var(--ink-3);font-size:13px;padding:8px 0">Ingen varer tilføjet endnu</div>';
     if(totalEl) totalEl.textContent = total.toLocaleString('da-DK') + ' kr.';
-    if(dropEl) dropEl.innerHTML = searchResults ? `<div style="border:1px solid var(--border-light);border-top:none;border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;background:var(--bg)">${searchResults}</div>` : '';
+    if(dropEl) dropEl.innerHTML = searchResults ? `<div style="border:1px solid var(--border-light);border-top:none;border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;background:var(--white)">${searchResults}</div>` : '';
     if(skipEl) skipEl.checked = window.pkgSkipDeduction||false;
     if(noteEl) noteEl.style.display = (window.pkgSkipDeduction) ? 'none' : 'block';
   };

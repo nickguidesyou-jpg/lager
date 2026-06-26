@@ -5,11 +5,9 @@ function getProps() {
 }
 
 // Kør denne funktion én gang manuelt i Apps Script-editoren for at sætte credentials
+// Sæt SHIPMONDO_USER og SHIPMONDO_KEY manuelt i Script Properties (Project Settings → Script Properties)
 function initShipmondoCreds() {
-  var props = getProps();
-  props.setProperty('SHIPMONDO_USER', '270c71ce-28a2-47ff-bc06-b73a972d5cc0');
-  props.setProperty('SHIPMONDO_KEY',  '6bb70c43-5957-43ec-9264-ccaaec14351f');
-  Logger.log('Credentials gemt i Script Properties');
+  Logger.log('Sæt SHIPMONDO_USER og SHIPMONDO_KEY direkte i Script Properties — ikke her.');
 }
 
 function validToken(p) {
@@ -95,14 +93,40 @@ function claudeProxy(data) {
   return JSON.parse(res.getContentText());
 }
 
+var LOGIN_MAX_ATTEMPTS = 8;
+var LOGIN_LOCKOUT_MS   = 15 * 60 * 1000; // 15 minutter
+
 function verifyLogin(p) {
-  var storedHash = getProps().getProperty('LAGER_HASH');
-  var token      = getProps().getProperty('LAGER_TOKEN');
+  var props      = getProps();
+  var storedHash = props.getProperty('LAGER_HASH');
+  var token      = props.getProperty('LAGER_TOKEN');
   if (!storedHash || !token) return { error: 'Server ikke konfigureret — sæt LAGER_HASH og LAGER_TOKEN i Script Properties' };
+
+  // Brute-force check
+  var attempts  = parseInt(props.getProperty('LOGIN_ATTEMPTS') || '0', 10);
+  var lockUntil = parseInt(props.getProperty('LOGIN_LOCK_UNTIL') || '0', 10);
+  var now       = Date.now();
+
+  if (now < lockUntil) {
+    var minsLeft = Math.ceil((lockUntil - now) / 60000);
+    return { error: 'For mange forsøg — prøv igen om ' + minsLeft + ' min.' };
+  }
+
   if (p.hash === storedHash) {
+    props.setProperty('LOGIN_ATTEMPTS',   '0');
+    props.setProperty('LOGIN_LOCK_UNTIL', '0');
     return { token: token };
   }
-  return { error: 'Forkert kode' };
+
+  attempts++;
+  props.setProperty('LOGIN_ATTEMPTS', String(attempts));
+  if (attempts >= LOGIN_MAX_ATTEMPTS) {
+    props.setProperty('LOGIN_LOCK_UNTIL', String(now + LOGIN_LOCKOUT_MS));
+    props.setProperty('LOGIN_ATTEMPTS',   '0');
+    return { error: 'For mange forsøg — låst i 15 min.' };
+  }
+  var left = LOGIN_MAX_ATTEMPTS - attempts;
+  return { error: 'Forkert kode — ' + left + ' forsøg tilbage' };
 }
 
 function shipmondoRequest(method, endpoint, payload) {
