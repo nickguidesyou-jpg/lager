@@ -1929,13 +1929,28 @@ function renderShipments(ships){
   const tbody = document.getElementById('ship-tbody');
   const empty = document.getElementById('ship-empty');
 
-  // Stats
-  const total = ships.length;
-  const delivered = ships.filter(s=>s.state==='delivered').length;
-  const transit   = ships.filter(s=>s.state==='in_transit'||s.state==='transit').length;
+  // Stats — use manual status from Sheets (Shipmondo API returns null for state)
+  const getStatus = s => {
+    const pkg = shipPackageContents[String(s.id)] || {};
+    const raw = pkg.status || s.state || 'created';
+    return {created:'created','in_transit':'transit','transit':'transit',delivered:'delivered',returned:'returned'}[raw]||'created';
+  };
+  const total     = ships.length;
+  const delivered = ships.filter(s=>getStatus(s)==='delivered').length;
+  const transit   = ships.filter(s=>getStatus(s)==='transit').length;
+  // Samlet pakkeværdi under transport
+  const transitValue = ships.filter(s=>getStatus(s)==='transit').reduce((sum,s)=>{
+    const pkg = shipPackageContents[String(s.id)] || {};
+    return sum + (pkg.items||[]).reduce((s2,e)=>{
+      const it = items.find(i=>i.id===e.id);
+      const pr = it ? findSesuPrice(it.name, it.sku) : null;
+      return s2 + (pr ? pr.price * e.qty : 0);
+    },0);
+  },0);
+  const transitValueStr = transitValue > 0 ? transitValue.toLocaleString('da-DK')+' kr.' : '—';
   document.getElementById('ship-stats').innerHTML = `
     <div class="stat-card blue"><div class="stat-label">Forsendelser</div><div class="stat-value">${String(total).padStart(2,'0')}</div><div class="stat-detail">denne side</div></div>
-    <div class="stat-card"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail">aktive forsendelser</div></div>
+    <div class="stat-card"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--ink-2)">${transitValueStr}</div></div>
     <div class="stat-card green"><div class="stat-label">Leveret</div><div class="stat-value">${String(delivered).padStart(2,'0')}</div><div class="stat-detail">afsluttede</div></div>`;
 
   if(!filtered.length){ if(empty) empty.style.display=''; return; }
@@ -1961,27 +1976,34 @@ function renderShipments(ships){
       ups:   `https://www.ups.com/track?tracknum=${safeTracking}`,
       dfm:   `https://www.dfm.dk/spoer-din-pakke/?q=${safeTracking}`,
     }[carrier] || safeLink) : null;
-    const state = s.state || 'created';
+    // Use manually-saved status (Shipmondo API returns null for state)
+    const pkg = shipPackageContents[String(s.id)] || {};
+    const manualStatus = pkg.status || '';
+    const stateRaw = manualStatus || s.state || 'created';
     const stateLabel = {
       'created':'Oprettet','in_transit':'Under transport','transit':'Under transport',
-      'delivered':'Leveret','returned':'Returneret','unknown':'Oprettet'
-    }[state] || 'Oprettet';
+      'delivered':'Leveret','returned':'Returneret'
+    }[stateRaw] || 'Oprettet';
     const stateClass = {
       'created':'created','in_transit':'transit','transit':'transit',
       'delivered':'delivered','returned':'returned'
-    }[state] || 'created';
+    }[stateRaw] || 'created';
+    const trackColor = {delivered:'#2D6A2D', transit:'#7A5A1A', returned:'#CC2929'}[stateClass] || 'var(--ink-3)';
 
-    const pkgContents = shipPackageContents[String(s.id)] || [];
-    const pkgValue = pkgContents.length
-      ? pkgContents.reduce((sum, entry) => {
+    const pkgItems = pkg.items || [];
+    const pkgValue = pkgItems.length
+      ? pkgItems.reduce((sum, entry) => {
           const it = items.find(i=>i.id===entry.id);
           const pr = it ? findSesuPrice(it.name, it.sku) : null;
           return sum + (pr ? pr.price * entry.qty : 0);
         }, 0)
       : null;
     const pkgValueCell = pkgValue !== null
-      ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--blue)">${pkgValue.toLocaleString('da-DK')} kr.</div><div style="font-size:10px;color:var(--ink-3)">${pkgContents.length} vare${pkgContents.length===1?'':'r'}</div>`
+      ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--blue)">${pkgValue.toLocaleString('da-DK')} kr.</div><div style="font-size:10px;color:var(--ink-3)">${pkgItems.length} vare${pkgItems.length===1?'':'r'}</div>`
       : `<span style="font-size:11px;color:var(--ink-3)">—</span>`;
+
+    // Cycle order for status badge click
+    const nextStatus = {created:'transit', transit:'delivered', delivered:'returned', returned:'created'}[stateClass]||'transit';
 
     return `<tr>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(s.id||'—')}</td>
@@ -1989,20 +2011,33 @@ function renderShipments(ships){
       <td style="font-size:12px">${esc(s.product_code||'—')}</td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(s.reference||'—')}</td>
       <td>
-        <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:${{delivered:'#2D6A2D',transit:'#7A5A1A',returned:'#CC2929'}[stateClass]||'var(--ink-3)'};font-weight:${stateClass==='created'?'400':'600'}">${esc(tracking)}</div>
+        <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:${trackColor};font-weight:${stateClass==='created'?'400':'600'}">${esc(tracking)}</div>
         ${trackUrl ? `<a href="${trackUrl}" target="_blank" rel="noopener" class="tracking-link" style="font-size:11px">↗ Spor pakke</a>` : ''}
       </td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(date)}</td>
       <td>${pkgValueCell}</td>
       <td>
         <div class="td-actions">
-          <span class="ship-status ${stateClass}">${stateLabel}</span>
+          <span class="ship-status ${stateClass}" onclick="setShipStatus(${s.id},'${nextStatus}')" title="Klik for at skifte status" style="cursor:pointer">${stateLabel}</span>
           <button class="btn btn-ghost btn-sm" onclick="openPackageModal(${s.id})" title="Rediger pakkeindhold" style="font-size:11px">📦 Indhold</button>
           <button class="btn btn-ghost btn-sm" onclick="printLabel(${s.id})" title="Hent label">🖨 Label</button>
         </div>
       </td>
     </tr>`;
   }).join('');
+}
+
+async function setShipStatus(shipId, status){
+  const sid = String(shipId);
+  // Map stateClass back to API-style value for storage
+  const statusMap = {created:'created', transit:'in_transit', delivered:'delivered', returned:'returned'};
+  const stored = statusMap[status] || status;
+  try {
+    await jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored });
+    if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
+    shipPackageContents[sid].status = stored;
+    renderShipments(allShips);
+  } catch(e) { toast('Fejl: '+e.message); }
 }
 
 async function printLabel(id){
@@ -2631,7 +2666,7 @@ function openPackageModal(shipId){
   // Only reset rows when opening a different shipment — not on re-render
   if(window.pkgModalSid !== sid){
     window.pkgModalSid = sid;
-    window.pkgModalRows = (shipPackageContents[sid] || []).map(e=>({...e}));
+    window.pkgModalRows = ((shipPackageContents[sid]||{}).items || []).map(e=>({...e}));
     window.pkgSkipDeduction = shipPackageContents[sid+'__skip'] === true;
   }
 
@@ -2727,7 +2762,7 @@ async function savePackageContentsModal(shipId){
   const skipDeduction = window.pkgSkipDeduction === true;
 
   // Compute diff: old contents vs new contents
-  const oldRows = shipPackageContents[sid] || [];
+  const oldRows = (shipPackageContents[sid]||{}).items || [];
   const oldMap = {};
   oldRows.forEach(e => { oldMap[e.id] = e.qty; });
   const newMap = {};
