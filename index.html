@@ -1112,6 +1112,23 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   box-shadow: 0 0 0 4000px rgba(0,0,0,.5);
 }
 
+/* ── NOTIFICATION BADGE ── */
+.notif-btn { position: relative; }
+.notif-badge {
+  position: absolute; top: 2px; right: 2px;
+  background: var(--red); color: #fff;
+  font-size: 9px; font-weight: 700; line-height: 14px;
+  border-radius: 99px; padding: 0 4px; min-width: 14px;
+  text-align: center; pointer-events: none;
+}
+/* ── RAPPORTER ── */
+.abc-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 10px 0 4px; }
+.abc-a { background: var(--green); }
+.abc-b { background: var(--amber); }
+.abc-c { background: var(--border); }
+.abc-badge-a { background: var(--green-dim); color: var(--green); }
+.abc-badge-b { background: var(--amber-dim); color: var(--amber); }
+.abc-badge-c { background: var(--surface-2); color: var(--ink-3); }
 /* ── DEADLINE PILL ── */
 .deadline-pill {
   display: inline-flex; align-items: center;
@@ -1188,6 +1205,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       <button class="nav-sub-item" onclick="showTab('optaelling')" id="nav-optaelling">
         <span class="nav-sub-icon">✓</span> Lageroptælling
       </button>
+      <button class="nav-sub-item" onclick="showTab('modtagelse')" id="nav-modtagelse">
+        <span class="nav-sub-icon">📥</span> Varemodtagelse
+      </button>
       <button class="nav-sub-item" onclick="showTab('indkob')" id="nav-indkob">
         <span class="nav-sub-icon">🛒</span> Indkøbsliste
       </button>
@@ -1202,6 +1222,13 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       </button>
       <button class="nav-item" onclick="showTab('priser')" id="nav-priser">
         <span class="nav-icon">💶</span> Fragtpriser
+      </button>
+      <div class="nav-label" style="margin-top:14px">Drift</div>
+      <button class="nav-item" onclick="showTab('leverandoerer')" id="nav-leverandoerer">
+        <span class="nav-icon">🏢</span> Leverandører
+      </button>
+      <button class="nav-item" onclick="showTab('rapporter')" id="nav-rapporter">
+        <span class="nav-icon">📊</span> Rapporter
       </button>
     </nav>
     <div class="sidebar-footer">
@@ -1264,6 +1291,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
           onkeydown="if(event.key==='Enter'&&this.value.trim()){sendAIFromSearch(this.value);this.value=''}else if(event.key==='Escape'){closeAI();this.blur()}">
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm notif-btn" id="notif-bell" onclick="openNotifModal()" title="Notifikationer og lav-beholdning-advarsler">🔔<span class="notif-badge" id="notif-badge" style="display:none">0</span></button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste">↓ CSV</button>
         <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
@@ -1378,6 +1406,70 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
               <tbody id="ot-tbody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- VAREMODTAGELSE -->
+      <div id="tab-modtagelse" class="view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:13px;color:var(--ink-3)">Registrer modtagne varer — antal opdateres og logges automatisk</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="openScanner()">📷 Scan</button>
+            <button id="recv-save-btn" class="btn btn-primary" onclick="saveModtagelse()" disabled>Gem modtagelse</button>
+          </div>
+        </div>
+        <div id="recv-summary" class="ot-summary-bar ot-clean">Angiv modtagne antal for at registrere en levering</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="padding-bottom:12px">
+            <span class="card-title">Søg og tilføj vare</span>
+          </div>
+          <div style="padding:0 20px 16px;display:flex;gap:8px">
+            <div style="flex:1;position:relative">
+              <input id="recv-search" type="text" placeholder="Varenavn eller SKU…" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:13px;box-sizing:border-box" oninput="renderRecvSearch(this.value)">
+              <div id="recv-drop" style="position:absolute;left:0;right:0;z-index:10"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Vare</th>
+                <th style="width:10%">Kategori</th>
+                <th style="width:12%">Placering</th>
+                <th style="width:9%">Lager nu</th>
+                <th style="width:9%">Mangler</th>
+                <th style="width:12%">Modtaget antal</th>
+                <th style="width:9%">Nyt lager</th>
+                <th style="width:5%"></th>
+              </tr></thead>
+              <tbody id="recv-tbody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen varer tilføjet endnu — søg ovenfor eller skift til en fane med varer under minimum</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:12px;text-align:right">
+          <button class="btn btn-ghost btn-sm" onclick="loadModtagelse()">Hent varer under minimum</button>
+        </div>
+      </div>
+
+      <!-- LEVERANDØRER -->
+      <div id="tab-leverandoerer" class="view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:13px;color:var(--ink-3)">Leverandører tilknyttes varer for automatisk udfyldt genbestillingsordre</div>
+          <button class="btn btn-primary" onclick="openLevModal(null)">+ Tilføj leverandør</button>
+        </div>
+        <div class="card" id="lev-list">
+          <div style="padding:20px;color:var(--ink-3);font-size:13px">Henter leverandører…</div>
+        </div>
+      </div>
+
+      <!-- RAPPORTER -->
+      <div id="tab-rapporter" class="view" style="display:none">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:20px">
+          <button class="btn btn-ghost btn-sm" onclick="renderRapporter(true)">⟳ Opdater</button>
+        </div>
+        <div id="rap-content">
+          <div style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px">Henter data…</div>
         </div>
       </div>
 
@@ -1533,11 +1625,14 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 const API = 'https://script.google.com/macros/s/AKfycbwdbhEo-na7UVPQ4raRAz22NhVxFzE8YvdyK1u06iTTKd4PDbdlQLU1jgHjhubgIUYZjw/exec';
 const CATS = ['Bordben','Beslag','Hyldeplader','Skruer & bolte','Møbelben','Hjul & gliders','Andet'];
 const BADGE = { Bordben:'badge-blue', Beslag:'badge-green', Hyldeplader:'badge-amber', 'Skruer & bolte':'badge-gray', Møbelben:'badge-blue', 'Hjul & gliders':'badge-green', Andet:'badge-gray' };
-const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling' };
+const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling', modtagelse:'Varemodtagelse', leverandoerer:'Leverandører', rapporter:'Rapporter' };
 
 let items=[], rooms=[], selRoom=null, activeCat='Alle';
 let allTemplates=[], templatesLoaded=false;
 let histEntries=[], histLoaded=false;
+let allLeverandoerer=[], leverandoererLoaded=false;
+let recvDraft={}; // {itemId: receivedQty}
+let notifLowSet=new Set(); // ids already notified this session
 let autoTimer = null;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
@@ -1582,6 +1677,7 @@ async function loadAll(quiet){
     const lowCount = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0)).length;
     document.getElementById('page-sub').textContent = items.length+' varer · '+rooms.length+' rum'+(lowCount?' · '+lowCount+' mangler':'')+' · opdateret '+time;
     renderAll();
+    checkAndNotify();
     if(!autoTimer) autoTimer = setInterval(()=>loadAll(true), 30000);
   } catch(e) {
     sync('err','Fejl');
@@ -1760,7 +1856,7 @@ function renderOverview(){
         <div class="stat-value" style="font-size:20px">${avgFmt}</div>
         <div class="stat-detail">kr. per forsendelse</div>
       </div>
-      <div class="stat-card" style="border-left:3px solid var(--blue);opacity:.85">
+      <div class="stat-card blue" style="opacity:.8">
         <div class="stat-label">Forventet — ${nextMonthName}</div>
         <div class="stat-value" style="font-size:20px">~${predictedRound}</div>
         <div class="stat-detail">≈ ${predictedAvgKr} samlet</div>
@@ -2027,6 +2123,7 @@ function openItemModal(id, preRoom){
   const shelf=it?it.shelf:'', qty=it?parseInt(it.qty):0;
   const minQ=it?parseInt(it.minQty):10, sku=it?it.sku:'', note=it?it.note:'';
   const lead=it?parseInt(it.leadDays||0):0;
+  const supplier=it?it.supplier||'':'';
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
       <div class="modal-title">${id?'Rediger vare':'Tilføj ny vare'}</div>
@@ -2054,6 +2151,7 @@ function openItemModal(id, preRoom){
         <div class="fg"><label>Min. beholdning</label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
         <div class="fg"><label>Leveringstid (dage)</label><input id="f-lead" type="number" value="${lead||''}" min="0" placeholder="—" title="Dage fra bestilling til hylde"></div>
       </div>
+      ${allLeverandoerer.length ? `<div class="fg"><label>Leverandør</label><select id="f-supplier"><option value="">— ingen —</option>${allLeverandoerer.map(l=>`<option value="${esc(l.id)}"${l.id===supplier?' selected':''}>${esc(l.name)}</option>`).join('')}</select></div>` : ''}
       <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${esc(note)}</textarea></div>
     </div>
     <div class="modal-foot">
@@ -2078,7 +2176,8 @@ async function saveItem(id, edit){
     minQty:document.getElementById('f-minq').value,
     sku:document.getElementById('f-sku').value.trim(),
     note:document.getElementById('f-note').value.trim(),
-    leadDays:document.getElementById('f-lead')?.value||'' };
+    leadDays:document.getElementById('f-lead')?.value||'',
+    supplier:document.getElementById('f-supplier')?.value||'' };
   closeModal(); sync('load','Gemmer…');
   try {
     const r=await jsonp(p);
@@ -2138,9 +2237,9 @@ async function delRoom(id){
 }
 
 function showTab(t){
-  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling']);
+  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter']);
   if(!VALID.has(t)) t = 'oversigt';
-  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling'].forEach(n=>{
+  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter'].forEach(n=>{
     const el = document.getElementById('tab-'+n);
     if(el) el.style.display = n===t ? 'block' : 'none';
     const nav = document.getElementById('nav-'+n);
@@ -2160,6 +2259,9 @@ function showTab(t){
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
   if(t === 'priser' && !prisLoaded) loadPriser();
   if(t === 'optaelling') renderOptaelling();
+  if(t === 'modtagelse') renderModtagelse();
+  if(t === 'leverandoerer') renderLeverandoerer();
+  if(t === 'rapporter') renderRapporter(false);
   if(t === 'indkob') priceReady.then(()=>renderIndkob());
   if(t === 'historik' && !histLoaded) loadHistorik();
 }
@@ -2399,6 +2501,7 @@ function renderShipments(ships){
         <div class="td-actions">
           <span class="ship-status ${stateClass}" onclick="setShipStatus(${s.id},'${nextStatus}')" title="Klik for at skifte status" style="cursor:pointer">${stateLabel}</span>
           <button class="btn btn-ghost btn-sm" onclick="openPackageModal(${s.id})" title="Rediger pakkeindhold" style="font-size:11px">📦 Indhold</button>
+          ${pkgItems.length ? `<button class="btn btn-ghost btn-sm" onclick="openPickList(${s.id})" title="Åbn plukkeliste" style="font-size:11px">✓ Pluk</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="printLabel(${s.id})" title="Hent label">🖨 Label</button>
         </div>
       </td>
@@ -2905,6 +3008,7 @@ async function doLogin() {
       loadMonthlyStats();
       loadMonthlyHistory();
       loadTemplates();
+      loadLeverandoerer();
     } else {
       loginAttempts++;
       err.textContent = 'Forkert kode — prøv igen';
@@ -2956,7 +3060,7 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   resetInactivityTimer();
   // Gendan aktiv fane fra URL-hash eller localStorage
   window.addEventListener('DOMContentLoaded', () => {
-    const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling']);
+    const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter']);
     const fromHash = location.hash.replace('#','');
     const saved = VALID.has(fromHash) ? fromHash : (localStorage.getItem('activeTab') || 'oversigt');
     if(saved !== 'oversigt') showTab(saved);
@@ -3026,6 +3130,473 @@ function exportCSV(){
   a.href=url; a.download='lager-'+new Date().toISOString().slice(0,10)+'.csv';
   a.click(); URL.revokeObjectURL(url);
   toast('CSV downloadet');
+}
+
+// ── NOTIFIKATIONER ──
+function checkAndNotify(){
+  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  const badge = document.getElementById('notif-badge');
+  if(badge){ badge.textContent=low.length; badge.style.display=low.length?'block':'none'; }
+
+  const perm = Notification.permission;
+  const enabled = localStorage.getItem('notif_browser')==='1';
+  if(perm!=='granted' || !enabled) return;
+  low.forEach(i=>{
+    if(notifLowSet.has(i.id)) return;
+    notifLowSet.add(i.id);
+    new Notification('Lav beholdning: '+i.name, {
+      body: i.qty+' stk tilbage / min. '+i.minQty+' stk',
+      icon: 'https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png'
+    });
+  });
+}
+
+function openNotifModal(){
+  const perm = Notification.permission;
+  const enabled = localStorage.getItem('notif_browser')==='1';
+  const savedEmail = localStorage.getItem('lager_alert_email')||localStorage.getItem('lager_order_email')||'';
+  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">🔔 Notifikationer</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      ${low.length ? `<div style="background:var(--red-dim);border:1px solid rgba(184,32,32,.15);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:16px;font-weight:500">${low.length} vare${low.length===1?'':'r'} under minimumsbeholdning</div>` : `<div style="background:var(--green-dim);border:1px solid rgba(45,106,45,.15);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--green);margin-bottom:16px">Alt er over minimumsbeholdning ✓</div>`}
+      <div class="card" style="padding:16px 20px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <div style="font-size:13px;font-weight:600">Browser-notifikationer</div>
+            <div style="font-size:11px;color:var(--ink-3);margin-top:2px">Viser en systemnotifikation når lager falder under minimum</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="notif-chk" ${enabled&&perm==='granted'?'checked':''} onchange="toggleBrowserNotif(this.checked)">
+            <span style="font-size:12px">${perm==='denied'?'<span style="color:var(--red)">Blokeret af browser</span>':perm==='granted'?'Tilladt':'Ikke anmodet'}</span>
+          </label>
+        </div>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">E-mail advarsler</div>
+        <div class="form-row" style="margin-bottom:10px">
+          <div class="fg"><label>E-mail adresse</label><input id="notif-email" type="email" value="${esc(savedEmail)}" placeholder="din@email.dk" oninput="localStorage.setItem('lager_alert_email',this.value)"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="sendAlertEmail()">📧 Send test-advarsel nu</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openNotifTriggerHelp()">? Daglig automatisk email</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+async function toggleBrowserNotif(checked){
+  if(!checked){ localStorage.setItem('notif_browser','0'); return; }
+  if(Notification.permission==='denied'){ toast('Notifikationer er blokeret — tillad dem i browserindstillingerne'); document.getElementById('notif-chk').checked=false; return; }
+  const perm = await Notification.requestPermission();
+  if(perm==='granted'){ localStorage.setItem('notif_browser','1'); toast('Browser-notifikationer aktiveret'); }
+  else { document.getElementById('notif-chk').checked=false; }
+}
+
+async function sendAlertEmail(){
+  const email = document.getElementById('notif-email')?.value.trim();
+  if(!email){ toast('Angiv en e-mail adresse'); return; }
+  localStorage.setItem('lager_alert_email', email);
+  try {
+    const r = await jsonp({ action:'sendLowStockAlert', email });
+    if(r.error) throw new Error(r.error);
+    toast(r.sent ? `E-mail sendt til ${email} (${r.count} varer)` : 'Ingen varer under minimum — ingen e-mail sendt');
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+function openNotifTriggerHelp(){
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">Automatisk daglig e-mail</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:12px">Sæt en daglig e-mail op direkte i Apps Script:</p>
+      <ol style="font-size:13px;color:var(--ink-2);line-height:2;padding-left:20px">
+        <li>Åbn <strong>lager-script</strong> i Google Apps Script</li>
+        <li>Klik <strong>Triggere</strong> (ur-ikonet) i venstremenuen</li>
+        <li>Klik <strong>+ Tilføj trigger</strong></li>
+        <li>Vælg funktion: <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px">sendDailyAlert</code></li>
+        <li>Hændelseskilde: <strong>Tidsbaseret</strong></li>
+        <li>Type: <strong>Dag-timer</strong>, f.eks. 08:00–09:00</li>
+      </ol>
+      <div style="margin-top:12px;padding:10px 14px;background:var(--blue-dim);border-radius:var(--radius);font-size:12px;color:var(--blue)">
+        Tilføj denne funktion til Code.js og sæt ALERT_EMAIL i Script Properties:
+        <pre style="margin-top:8px;font-size:11px;overflow-x:auto">function sendDailyAlert(){
+  sendLowStockAlert(SpreadsheetApp.getActiveSpreadsheet(),
+    {email: PropertiesService.getScriptProperties()
+      .getProperty('ALERT_EMAIL')});
+}</pre>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+// ── VAREMODTAGELSE ──
+let recvItems = []; // items currently in receipt form
+
+function loadModtagelse(){
+  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  recvItems = low.map(i=>({ id:i.id }));
+  recvDraft = {};
+  low.forEach(i=>{ const need=parseInt(i.minQty||0)-parseInt(i.qty||0); recvDraft[i.id]=need; });
+  renderModtagelse();
+}
+
+function renderModtagelse(){
+  const el=document.getElementById('tab-modtagelse');
+  if(!el||el.style.display==='none') return;
+
+  const tbody=document.getElementById('recv-tbody');
+  if(!tbody) return;
+
+  const ids=new Set(recvItems.map(r=>r.id));
+  if(!ids.size){
+    tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen varer tilføjet — klik "Hent varer under minimum" eller søg ovenfor</td></tr>';
+    updateRecvSummary();
+    return;
+  }
+
+  tbody.innerHTML=[...ids].map(id=>{
+    const i=items.find(x=>x.id===id); if(!i) return '';
+    const cur=parseInt(i.qty||0);
+    const need=Math.max(0,parseInt(i.minQty||0)-cur);
+    const recv=recvDraft[id]??0;
+    const newQty=cur+recv;
+    const r=rooms.find(r=>r.id===i.room);
+    return `<tr>
+      <td><div class="td-name">${esc(i.name)}</div>${catBadge(i.cat)}</td>
+      <td style="font-size:11px">${catBadge(i.cat)}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${r?esc(r.name)+' · ':''}<span style="font-family:'IBM Plex Mono',monospace">${esc(i.shelf)}</span></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-weight:600">${cur}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;color:${need?'var(--red)':'var(--ink-3)'}">${need?'+'+need:'✓'}</td>
+      <td><input type="number" min="0" class="ot-input${recv>0?' changed':''}" value="${recv}"
+        oninput="recvDraft['${id}']=Math.max(0,parseInt(this.value)||0);this.classList.toggle('changed',recvDraft['${id}']>0);renderModtagelse()"></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${newQty>=parseInt(i.minQty||0)?'var(--green)':'var(--amber)'}">${newQty}</td>
+      <td><button onclick="recvItems=recvItems.filter(x=>x.id!=='${id}');delete recvDraft['${id}'];renderModtagelse()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
+    </tr>`;
+  }).join('');
+
+  updateRecvSummary();
+}
+
+function updateRecvSummary(){
+  const changed=Object.entries(recvDraft).filter(([,v])=>v>0);
+  const total=changed.reduce((s,[,v])=>s+v,0);
+  const sum=document.getElementById('recv-summary');
+  const btn=document.getElementById('recv-save-btn');
+  if(sum){
+    if(!changed.length){ sum.className='ot-summary-bar ot-clean'; sum.textContent='Angiv modtagne antal for at registrere en levering'; }
+    else { sum.className='ot-summary-bar'; sum.textContent=`${changed.length} vare${changed.length===1?'':'r'} klar til modtagelse · ${total} stk i alt`; }
+  }
+  if(btn) btn.disabled=!changed.length;
+}
+
+function renderRecvSearch(q){
+  const drop=document.getElementById('recv-drop'); if(!drop) return;
+  if(!q){ drop.innerHTML=''; return; }
+  const matches=items.filter(i=>i.name.toLowerCase().includes(q.toLowerCase())||i.sku.toLowerCase().includes(q.toLowerCase())).slice(0,6);
+  if(!matches.length){ drop.innerHTML=''; return; }
+  drop.innerHTML=`<div style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);background:var(--white);max-height:200px;overflow-y:auto">${
+    matches.map(i=>`<div onclick="addToRecv('${i.id}');document.getElementById('recv-search').value='';document.getElementById('recv-drop').innerHTML=''" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light)">${esc(i.name)}${i.sku?` <span style="font-size:10px;color:var(--ink-3)">${esc(i.sku)}</span>`:''}</div>`).join('')
+  }</div>`;
+}
+
+function addToRecv(id){
+  if(!recvItems.find(x=>x.id===id)){ recvItems.push({id}); if(!recvDraft[id]) recvDraft[id]=0; }
+  renderModtagelse();
+}
+
+async function saveModtagelse(){
+  const changed=Object.entries(recvDraft).filter(([,v])=>v>0);
+  if(!changed.length){ toast('Ingen varer at gemme'); return; }
+  const btn=document.getElementById('recv-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Gemmer…'; }
+  sync('load','Gemmer modtagelse…');
+  try {
+    await Promise.all(changed.map(async ([id,recv])=>{
+      const it=items.find(i=>i.id===id); if(!it) return;
+      const orig=parseInt(it.qty||0), newQty=orig+recv;
+      await jsonp({...it, action:'saveItem', qty:newQty});
+      jsonp({action:'logMovement',item_id:id,item_name:it.name,from_qty:orig,to_qty:newQty,note:'Varemodtagelse'}).catch(()=>{});
+    }));
+    histLoaded=false;
+    recvDraft={}; recvItems=[];
+    toast(`${changed.length} vare${changed.length===1?'':'r'} modtaget og lager opdateret`);
+    await loadAll();
+    renderModtagelse();
+  } catch(e){
+    sync('err','Fejl'); showErr('Fejl ved gem: '+e.message);
+  } finally { if(btn){ btn.textContent='Gem modtagelse'; } }
+}
+
+// ── PLUKKELISTE ──
+function openPickList(shipId){
+  const sid=String(shipId);
+  const ship=allShips.find(s=>String(s.id)===sid);
+  const pkg=shipPackageContents[sid]||{};
+  const pkgItems=pkg.items||[];
+  if(!pkgItems.length){ toast('Ingen varer i pakken — tilføj dem via Indhold-knappen'); return; }
+
+  // Sort by room name, then shelf
+  const sorted=[...pkgItems].sort((a,b)=>{
+    const ia=items.find(i=>i.id===a.id), ib=items.find(i=>i.id===b.id);
+    const ra=ia?rooms.find(r=>r.id===ia.room):null, rb=ib?rooms.find(r=>r.id===ib.room):null;
+    const rna=(ra?ra.name:''), rnb=(rb?rb.name:'');
+    if(rna!==rnb) return rna.localeCompare(rnb,'da');
+    return (ia?.shelf||'').localeCompare(ib?.shelf||'','da');
+  });
+
+  const label=ship?(ship.reference||ship.id):sid;
+  let lastRoom='';
+  const rows=sorted.map(e=>{
+    const it=items.find(i=>i.id===e.id);
+    const r=it?rooms.find(r=>r.id===it.room):null;
+    const rName=r?r.name:'';
+    const roomHeader=rName!==lastRoom?`<tr style="background:var(--surface)"><td colspan="4" style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:8px 16px 4px">${esc(rName)||'Ukendt rum'}</td></tr>`:'';
+    lastRoom=rName;
+    const cid='pluk-'+e.id;
+    return roomHeader+`<tr onclick="this.classList.toggle('ot-changed');document.getElementById('${cid}').checked=!document.getElementById('${cid}').checked;checkPickDone('${sid}')" style="cursor:pointer">
+      <td style="width:36px"><input type="checkbox" id="${cid}" onclick="event.stopPropagation();checkPickDone('${sid}')"></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(it?.shelf||'—')}</td>
+      <td><div class="td-name">${esc(it?it.name:e.id)}</div></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:14px;text-align:right">${e.qty}×</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">✓ Plukkeliste — ${esc(String(label))}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="pick-done-banner" style="display:none;background:var(--green-dim);border:1px solid rgba(45,106,45,.15);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:12px;text-align:center">✓ Alle varer plukket — klar til afsendelse!</div>
+      <div class="table-wrap">
+        <table><tbody>${rows}</tbody></table>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--ink-3);text-align:center">${sorted.length} linjer · klik en række for at markere som plukket</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="window.print()">🖨 Print</button>
+      <button class="btn btn-primary" onclick="closeModal()">Luk</button>
+    </div>`;
+  openModal();
+}
+
+function checkPickDone(sid){
+  const boxes=[...document.querySelectorAll('[id^="pluk-"]')];
+  if(boxes.length && boxes.every(b=>b.checked)){
+    const banner=document.getElementById('pick-done-banner');
+    if(banner) banner.style.display='block';
+  }
+}
+
+// ── LEVERANDØRER ──
+async function loadLeverandoerer(){
+  if(leverandoererLoaded) return;
+  try {
+    const d=await jsonp({action:'getLeverandoerer'});
+    if(d.error) throw new Error(d.error);
+    allLeverandoerer=Array.isArray(d)?d:[];
+    leverandoererLoaded=true;
+    renderLeverandoerer();
+  } catch(e){ /* silent */ }
+}
+
+function renderLeverandoerer(){
+  const el=document.getElementById('lev-list'); if(!el) return;
+  if(!allLeverandoerer.length){
+    el.innerHTML='<div style="padding:20px;font-size:13px;color:var(--ink-3)">Ingen leverandører endnu — tilføj din første leverandør for at tilknytte dem til varer og genbestillingsordrer.</div>';
+    return;
+  }
+  el.innerHTML=allLeverandoerer.map(l=>{
+    const itemCount=items.filter(i=>i.supplier===l.id).length;
+    return `<div class="list-row">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${esc(l.name)}</div>
+        <div style="display:flex;gap:12px;margin-top:3px;flex-wrap:wrap">
+          ${l.email?`<span style="font-size:11px;color:var(--blue)">${esc(l.email)}</span>`:''}
+          ${l.phone?`<span style="font-size:11px;color:var(--ink-3)">${esc(l.phone)}</span>`:''}
+          ${l.website?`<a href="${esc(l.website)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--blue)">${esc(l.website)}</a>`:''}
+          ${l.leadDays?`<span style="font-size:11px;color:var(--ink-3)">${esc(l.leadDays)} dages leveringstid</span>`:''}
+        </div>
+        ${l.notes?`<div style="font-size:11px;color:var(--ink-3);margin-top:3px">${esc(l.notes)}</div>`:''}
+      </div>
+      <div style="font-size:11px;color:var(--ink-3);margin-right:12px;white-space:nowrap">${itemCount} vare${itemCount===1?'':'r'}</div>
+      <div class="td-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openLevModal('${esc(l.id)}')">Rediger</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteLevFn('${esc(l.id)}')">Slet</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openLevModal(id){
+  const l=id?allLeverandoerer.find(x=>x.id===id):null;
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">${id?'Rediger leverandør':'Tilføj leverandør'}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fg"><label>Navn</label><input id="lev-name" value="${esc(l?.name||'')}" placeholder="Leverandørens navn" autofocus></div>
+      <div class="form-row">
+        <div class="fg"><label>E-mail</label><input id="lev-email" type="email" value="${esc(l?.email||'')}" placeholder="kontakt@leverandoer.dk"></div>
+        <div class="fg"><label>Telefon</label><input id="lev-phone" value="${esc(l?.phone||'')}" placeholder="+45 12 34 56 78"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Website</label><input id="lev-web" value="${esc(l?.website||'')}" placeholder="https://"></div>
+        <div class="fg"><label>Std. leveringstid (dage)</label><input id="lev-lead" type="number" min="0" value="${esc(l?.leadDays||'')}" placeholder="—"></div>
+      </div>
+      <div class="fg"><label>Note</label><textarea id="lev-notes" placeholder="Evt. betingelser, mindsteordre osv.">${esc(l?.notes||'')}</textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="saveLevFn('${id||''}')">Gem</button>
+    </div>`;
+  openModal();
+}
+
+async function saveLevFn(id){
+  const name=document.getElementById('lev-name')?.value.trim();
+  if(!name){ toast('Angiv et navn'); return; }
+  const p={ action:'saveLeverandoer', id:id||uid(), name,
+    email:document.getElementById('lev-email')?.value.trim()||'',
+    phone:document.getElementById('lev-phone')?.value.trim()||'',
+    website:document.getElementById('lev-web')?.value.trim()||'',
+    leadDays:document.getElementById('lev-lead')?.value||'',
+    notes:document.getElementById('lev-notes')?.value.trim()||'' };
+  closeModal();
+  try {
+    await jsonp(p);
+    leverandoererLoaded=false;
+    await loadLeverandoerer();
+    toast(id?'Leverandør opdateret':'Leverandør tilføjet');
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+async function deleteLevFn(id){
+  if(!confirm('Slet denne leverandør?')) return;
+  try {
+    await jsonp({action:'deleteLeverandoer',id});
+    allLeverandoerer=allLeverandoerer.filter(l=>l.id!==id);
+    items.forEach(i=>{ if(i.supplier===id) i.supplier=''; });
+    renderLeverandoerer();
+    toast('Leverandør slettet');
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+// ── RAPPORTER ──
+async function renderRapporter(force){
+  const el=document.getElementById('tab-rapporter');
+  if(!el||el.style.display==='none') return;
+  const content=document.getElementById('rap-content'); if(!content) return;
+
+  if(!histLoaded){
+    content.innerHTML='<div style="text-align:center;padding:2rem;color:var(--ink-3);font-size:13px">Henter bevægelseshistorik…</div>';
+    await loadHistorik();
+  }
+
+  const priceReady=loadSesuPrices();
+  await priceReady;
+
+  // ── ABC-analyse ──
+  const priced=items.map(i=>{
+    const m=findSesuPrice(i.name,i.sku);
+    const val=m?(parseFloat(m.price)||0)*parseInt(i.qty||0):0;
+    return {...i,val};
+  }).sort((a,b)=>b.val-a.val);
+  const totalVal=priced.reduce((s,i)=>s+i.val,0);
+  let cum=0, abcList=priced.map(i=>{
+    cum+=i.val;
+    const pct=totalVal?cum/totalVal:0;
+    const cls=pct<=.7?'A':pct<=.9?'B':'C';
+    return {...i,abcClass:cls};
+  });
+  const aItems=abcList.filter(i=>i.abcClass==='A');
+  const bItems=abcList.filter(i=>i.abcClass==='B');
+  const cItems=abcList.filter(i=>i.abcClass==='C');
+  const aVal=aItems.reduce((s,i)=>s+i.val,0);
+  const aW=totalVal?Math.round(aVal/totalVal*100):0;
+  const bW=totalVal?Math.round(bItems.reduce((s,i)=>s+i.val,0)/totalVal*100):0;
+
+  // ── Omsætning (bevægelser per vare seneste 30 dage) ──
+  const cutoff30=new Date(Date.now()-30*86400000).toISOString();
+  const cutoff90=new Date(Date.now()-90*86400000).toISOString();
+  const moveCounts={};
+  histEntries.filter(e=>e.ts>=cutoff30).forEach(e=>{ moveCounts[e.item_id]=(moveCounts[e.item_id]||0)+Math.abs(parseInt(e.to_qty||0)-parseInt(e.from_qty||0)); });
+  const topMovers=[...items].map(i=>({...i,moved:moveCounts[i.id]||0})).filter(i=>i.moved>0).sort((a,b)=>b.moved-a.moved).slice(0,10);
+
+  // ── Langsomme bevægere ──
+  const movedIds90=new Set(histEntries.filter(e=>e.ts>=cutoff90).map(e=>e.item_id));
+  const slowMovers=items.filter(i=>parseInt(i.qty||0)>0&&!movedIds90.has(i.id));
+
+  content.innerHTML=`
+    <!-- ABC-analyse -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><span class="card-title">ABC-analyse — lagerværdi</span><span style="font-size:11px;color:var(--ink-3)">${totalVal>0?totalVal.toLocaleString('da-DK')+' kr. samlet':'Hent priser under Alle varer for fuld analyse'}</span></div>
+      <div style="padding:16px 20px 8px">
+        <div class="abc-bar">
+          <div class="abc-a" style="width:${aW}%" title="A: ${aW}%"></div>
+          <div class="abc-b" style="width:${bW}%" title="B: ${bW}%"></div>
+          <div class="abc-c" style="flex:1" title="C: ${100-aW-bW}%"></div>
+        </div>
+        <div style="display:flex;gap:16px;font-size:11px;color:var(--ink-3);margin-bottom:12px">
+          <span><span class="badge abc-badge-a">A</span> ${aItems.length} varer · ${aW}% af værdi</span>
+          <span><span class="badge abc-badge-b">B</span> ${bItems.length} varer · ${bW}% af værdi</span>
+          <span><span class="badge" style="background:var(--surface-2);color:var(--ink-3)">C</span> ${cItems.length} varer · ${100-aW-bW}% af værdi</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vare</th><th style="width:8%">ABC</th><th style="width:14%">Lagerværdi</th><th style="width:8%">Antal</th><th style="width:11%">Enhedspris</th></tr></thead>
+          <tbody>${abcList.slice(0,20).map(i=>{
+            const badge=i.abcClass==='A'?'abc-badge-a':i.abcClass==='B'?'abc-badge-b':'';
+            return `<tr>
+              <td><div class="td-name">${esc(i.name)}</div>${catBadge(i.cat)}</td>
+              <td><span class="badge ${badge}" style="${!badge?'background:var(--surface-2);color:var(--ink-3)':''}">${i.abcClass}</span></td>
+              <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--blue)">${i.val>0?i.val.toLocaleString('da-DK')+' kr.':'—'}</td>
+              <td style="font-family:'IBM Plex Mono',monospace">${esc(i.qty)}</td>
+              <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.val&&parseInt(i.qty)>0?(i.val/parseInt(i.qty)).toLocaleString('da-DK',{maximumFractionDigits:0})+' kr.':'—'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+        ${abcList.length>20?`<div style="padding:8px 16px;font-size:11px;color:var(--ink-3)">Viser top 20 af ${abcList.length} varer</div>`:''}
+      </div>
+    </div>
+
+    <!-- Top bevægere -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Top bevægere — 30 dage</span></div>
+        ${topMovers.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>Vare</th><th style="width:12%">Stk.</th></tr></thead>
+          <tbody>${topMovers.map(i=>`<tr>
+            <td><div class="td-name" style="cursor:pointer" onclick="openItemModal('${i.id}',null)">${esc(i.name)}</div></td>
+            <td><span class="delta-up">+${i.moved}</span></td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<div style="padding:20px;font-size:13px;color:var(--ink-3)">Ingen bevægelser de seneste 30 dage</div>'}
+      </div>
+
+      <!-- Langsomme bevægere -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Langsomme bevægere — 90 dage</span><span style="font-size:11px;color:var(--ink-3)">${slowMovers.length} varer</span></div>
+        ${slowMovers.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>Vare</th><th style="width:10%">Antal</th></tr></thead>
+          <tbody>${slowMovers.slice(0,10).map(i=>`<tr>
+            <td><div class="td-name" style="cursor:pointer" onclick="openItemModal('${i.id}',null)">${esc(i.name)}</div>${catBadge(i.cat)}</td>
+            <td style="font-family:'IBM Plex Mono',monospace;color:var(--ink-3)">${esc(i.qty)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>${slowMovers.length>10?`<div style="padding:8px 16px;font-size:11px;color:var(--ink-3)">+${slowMovers.length-10} mere</div>`:''}`
+        : '<div style="padding:20px;font-size:13px;color:var(--green)">✓ Alle varer har bevægelse de seneste 90 dage</div>'}
+      </div>
+    </div>`;
 }
 
 // ── LAGEROPTÆLLING ──
