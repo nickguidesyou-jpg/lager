@@ -842,10 +842,15 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   display: flex;
   align-items: stretch;
   height: 64px;
-  padding: 0 8px;
+  padding: 0 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
 }
+.mobile-nav-inner::-webkit-scrollbar { display: none; }
 .mobile-nav-item {
-  flex: 1;
+  flex: 0 0 64px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -863,6 +868,8 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   padding: 6px 4px;
   letter-spacing: .01em;
   -webkit-tap-highlight-color: transparent;
+  scroll-snap-align: start;
+  white-space: nowrap;
 }
 .mobile-nav-item .mnav-icon { font-size: 20px; line-height: 1; }
 .mobile-nav-item.active { color: #fff; background: rgba(255,255,255,.1); }
@@ -1232,7 +1239,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
     <div class="sidebar-search">
       <div class="sidebar-search-wrap">
         <span class="sidebar-search-icon">⌕</span>
-        <input type="text" id="nav-search" placeholder="Søg vare..." oninput="filterNavSearch(this.value)" autocomplete="off">
+        <input type="text" id="nav-search" placeholder="Søg navigation…" oninput="filterNavSearch(this.value)" autocomplete="off">
       </div>
     </div>
     <nav class="sidebar-nav">
@@ -1321,6 +1328,30 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       <button class="mobile-nav-item" id="mnav-indkob" onclick="showTab('indkob')" aria-label="Indkøb">
         <span class="mnav-icon">🛒</span>
         <span>Indkøb</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-historik" onclick="showTab('historik')" aria-label="Historik">
+        <span class="mnav-icon">📋</span>
+        <span>Historik</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-optaelling" onclick="showTab('optaelling')" aria-label="Optælling">
+        <span class="mnav-icon">✓</span>
+        <span>Optælling</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-modtagelse" onclick="showTab('modtagelse')" aria-label="Modtagelse">
+        <span class="mnav-icon">📥</span>
+        <span>Modtagelse</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-leverandoerer" onclick="showTab('leverandoerer')" aria-label="Leverandører">
+        <span class="mnav-icon">🏢</span>
+        <span>Leverand.</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-indkoebsordrer" onclick="showTab('indkoebsordrer')" aria-label="Indkøbsordrer">
+        <span class="mnav-icon">📋</span>
+        <span>IO</span>
+      </button>
+      <button class="mobile-nav-item" id="mnav-rapporter" onclick="showTab('rapporter')" aria-label="Rapporter">
+        <span class="mnav-icon">📊</span>
+        <span>Rapporter</span>
       </button>
       <button class="mobile-nav-item mobile-nav-ai" id="mnav-ai" onclick="toggleAI()" aria-label="Assistent">
         <span class="mnav-icon">✦</span>
@@ -1801,7 +1832,10 @@ async function loadAll(quiet){
     document.getElementById('page-sub').textContent = items.length+' varer · '+rooms.length+' rum'+(lowCount?' · '+lowCount+' mangler':'')+' · opdateret '+time;
     renderAll();
     checkAndNotify();
-    if(!autoTimer) autoTimer = setInterval(()=>loadAll(true), 30000);
+    if(!autoTimer){
+      autoTimer = setInterval(()=>{ if(!document.hidden) loadAll(true); }, 30000);
+      document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && items.length) loadAll(true); });
+    }
   } catch(e) {
     sync('err','Fejl');
     showErr('Forbindelsesfejl: '+e.message+' — Tjek at Apps Script er deployed med adgang sat til "Alle" og at du har lavet ny version.');
@@ -2646,7 +2680,7 @@ function showTab(t){
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
   if(t === 'priser' && !prisLoaded) loadPriser();
   if(t === 'optaelling') renderOptaelling();
-  if(t === 'modtagelse') renderModtagelse();
+  if(t === 'modtagelse'){ if(!recvItems.length) restoreRecvDraftLocal(); renderModtagelse(); }
   if(t === 'leverandoerer') renderLeverandoerer();
   if(t === 'rapporter') renderRapporter(false);
   if(t === 'indkoebsordrer') { if(!poLoaded) loadIndkoebsordrer(); else renderIndkoebsordrer(); }
@@ -3894,11 +3928,26 @@ function openNotifTriggerHelp(){
 // ── VAREMODTAGELSE ──
 let recvItems = []; // items currently in receipt form
 
+function saveRecvDraftLocal(){
+  try { localStorage.setItem('recv_draft', JSON.stringify({items:recvItems, draft:recvDraft})); } catch(e){}
+}
+function restoreRecvDraftLocal(){
+  try {
+    const s = localStorage.getItem('recv_draft');
+    if(!s) return false;
+    const p = JSON.parse(s);
+    if(p.items && p.items.length){ recvItems = p.items; recvDraft = p.draft||{}; return true; }
+  } catch(e){}
+  return false;
+}
+function clearRecvDraftLocal(){ try { localStorage.removeItem('recv_draft'); } catch(e){} }
+
 function loadModtagelse(){
   const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
   recvItems = low.map(i=>({ id:i.id }));
   recvDraft = {};
   low.forEach(i=>{ const need=parseInt(i.minQty||0)-parseInt(i.qty||0); recvDraft[i.id]=need; });
+  saveRecvDraftLocal();
   renderModtagelse();
 }
 
@@ -3930,9 +3979,9 @@ function renderModtagelse(){
       <td style="font-family:'IBM Plex Mono',monospace;font-weight:600">${cur}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:${need?'var(--red)':'var(--ink-3)'}">${need?'+'+need:'✓'}</td>
       <td><input type="number" min="0" class="ot-input${recv>0?' changed':''}" value="${recv}"
-        oninput="recvDraft['${id}']=Math.max(0,parseInt(this.value)||0);this.classList.toggle('changed',recvDraft['${id}']>0);renderModtagelse()"></td>
+        oninput="recvDraft['${id}']=Math.max(0,parseInt(this.value)||0);this.classList.toggle('changed',recvDraft['${id}']>0);saveRecvDraftLocal();renderModtagelse()"></td>
       <td style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${newQty>=parseInt(i.minQty||0)?'var(--green)':'var(--amber)'}">${newQty}</td>
-      <td><button onclick="recvItems=recvItems.filter(x=>x.id!=='${id}');delete recvDraft['${id}'];renderModtagelse()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
+      <td><button onclick="recvItems=recvItems.filter(x=>x.id!=='${id}');delete recvDraft['${id}'];saveRecvDraftLocal();renderModtagelse()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
     </tr>`;
   }).join('');
 
@@ -3963,6 +4012,7 @@ function renderRecvSearch(q){
 
 function addToRecv(id){
   if(!recvItems.find(x=>x.id===id)){ recvItems.push({id}); if(!recvDraft[id]) recvDraft[id]=0; }
+  saveRecvDraftLocal();
   renderModtagelse();
 }
 
@@ -3981,6 +4031,7 @@ async function saveModtagelse(){
     }));
     histLoaded=false;
     recvDraft={}; recvItems=[];
+    clearRecvDraftLocal();
     toast(`${changed.length} vare${changed.length===1?'':'r'} modtaget og lager opdateret`);
     await loadAll();
     renderModtagelse();
