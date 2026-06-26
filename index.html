@@ -167,8 +167,7 @@ body {
   top: 0; left: 0; bottom: 0;
   z-index: 200;
   border-right: 1px solid rgba(255,255,255,.06);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 .sidebar-logo {
   padding: 24px 20px 18px;
@@ -188,7 +187,7 @@ body {
   margin-top: 3px;
   letter-spacing: .02em;
 }
-.sidebar-nav { padding: 10px 10px; flex: 1; }
+.sidebar-nav { padding: 10px 10px; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .nav-label {
   font-size: 10px;
   font-weight: 600;
