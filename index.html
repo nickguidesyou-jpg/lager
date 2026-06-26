@@ -5,6 +5,19 @@
 <link rel="canonical" href="https://nickguidesyou-jpg.github.io/lager/">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SESU Lagersystem</title>
+<!-- Sikkerhed: forhindrer clickjacking og begrænser hvorfra ressourcer må hentes -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' cdn.jsdelivr.net;
+  style-src 'self' 'unsafe-inline' fonts.googleapis.com fonts.gstatic.com;
+  img-src 'self' data: blob: https:;
+  font-src 'self' fonts.gstatic.com;
+  connect-src 'self' https://script.google.com https://api.upcitemdb.com https://api.qrserver.com https://api.anthropic.com;
+  frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
+">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -4224,8 +4237,32 @@ function searchCmdk(q){
 
 function doLogout() {
   if(!confirm('Log ud af lagersystemet?')) return;
+
+  // Ryd session
   sessionStorage.removeItem('lager_auth');
   sessionStorage.removeItem('lager_token');
+
+  // Ryd sensitiv localStorage (kundedata, ordrer, historik, forsendelsesindhold)
+  const sensitiveKeys = [
+    'lager_so',           // Salgsordrer med kundenavne
+    'lager_order_hist',   // Indkøbsordrehistorik
+    'lager_snap',         // Lagersnapshot med beholdningsdata
+    'recv_draft',         // Varemodtagelse-kladde
+    'ot_snapshots',       // Optællings-snapshots
+  ];
+  sensitiveKeys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+
+  // Ryd ship_status_* nøgler (dynamiske nøgler per forsendelse)
+  try {
+    Object.keys(localStorage).filter(k=>k.startsWith('ship_status_')||k.startsWith('ship_pkg_'))
+      .forEach(k=>localStorage.removeItem(k));
+  } catch(e){}
+
+  // Nulstil data i hukommelsen så konsollen ikke kan læse det efter logout
+  items=[]; rooms=[]; histEntries=[]; allShips=[]; allSO=[];
+  allPO=[]; allLeverandoerer=[]; shipPackageContents={};
+  _loginHash=''; autoTimer=null;
+
   location.reload();
 }
 
@@ -6912,16 +6949,46 @@ function scrollAI(){
   el.scrollTop = el.scrollHeight;
 }
 
-// ── SALGSORDRER ──
+// ── SALGSORDRER (krypterede med AES-GCM) ──
 let allSO = [];
 const SO_KEY = 'lager_so';
 
-function loadSO(){ try{ allSO=JSON.parse(localStorage.getItem(SO_KEY)||'[]'); }catch(e){ allSO=[]; } }
-function saveSO(){ localStorage.setItem(SO_KEY, JSON.stringify(allSO)); }
+async function getSOKey(){
+  const token=sessionStorage.getItem('lager_token')||'fallback';
+  const raw=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('so-key:'+token));
+  return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
+}
+
+async function loadSO(){
+  try{
+    const stored=localStorage.getItem(SO_KEY);
+    if(!stored){ allSO=[]; return; }
+    const parsed=JSON.parse(stored);
+    // Støtter både gammelt ukrypteret format (array) og nyt krypteret format (objekt med iv+data)
+    if(Array.isArray(parsed)){ allSO=parsed; return; }
+    if(parsed.iv&&parsed.data){
+      const key=await getSOKey();
+      const iv=new Uint8Array(parsed.iv);
+      const data=Uint8Array.from(atob(parsed.data),c=>c.charCodeAt(0));
+      const dec=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,data);
+      allSO=JSON.parse(new TextDecoder().decode(dec));
+    } else { allSO=[]; }
+  }catch(e){ allSO=[]; }
+}
+
+async function saveSO(){
+  try{
+    const key=await getSOKey();
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const enc=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(allSO)));
+    const payload={iv:Array.from(iv),data:btoa(String.fromCharCode(...new Uint8Array(enc)))};
+    localStorage.setItem(SO_KEY,JSON.stringify(payload));
+  }catch(e){ try{ localStorage.setItem(SO_KEY,JSON.stringify(allSO)); }catch(x){} }
+}
 function genSOId(){ const d=new Date(); return 'SO-'+d.getFullYear()+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')+'-'+(allSO.length+1+'').padStart(3,'0'); }
 
-function renderSO(){
-  loadSO();
+async function renderSO(){
+  await loadSO();
   const ny=allSO.filter(s=>s.status==='ny').length;
   const pluk=allSO.filter(s=>s.status==='pluk').length;
   const pakket=allSO.filter(s=>s.status==='pakket').length;
@@ -6953,8 +7020,8 @@ function renderSO(){
   </tr>`;}).join('');
 }
 
-function openSOModal(id){
-  loadSO();
+async function openSOModal(id){
+  await loadSO();
   const so=id?allSO.find(s=>s.id===id):null;
   document.getElementById('so-modal-title').textContent=so?'Rediger salgsordre':'Ny salgsordre';
   document.getElementById('so-id').value=so?.id||'';
@@ -6996,23 +7063,23 @@ function saveSOModal(){
     const item=items.find(i=>i.id===sel.value);
     return {itemId:sel.value,name:item?.name||sel.options[sel.selectedIndex]?.text||'',qty:parseInt(inps[0]?.value||1),salePrice:parseFloat(inps[1]?.value||0)||0};
   }).filter(Boolean);
-  loadSO();
+  await loadSO();
   if(id){
     const idx=allSO.findIndex(s=>s.id===id);
     if(idx>=0) allSO[idx]={...allSO[idx],customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines};
   } else {
     allSO.push({id:genSOId(),customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines,created:Date.now()});
   }
-  saveSO(); closeSOModal(); renderSO(); toast('Salgsordre gemt');
+  await saveSO(); closeSOModal(); renderSO(); toast('Salgsordre gemt');
 }
 
-function deleteSO(id){
+async function deleteSO(id){
   if(!confirm('Slet salgsordre?')) return;
-  loadSO(); allSO=allSO.filter(s=>s.id!==id); saveSO(); renderSO(); toast('Slettet');
+  await loadSO(); allSO=allSO.filter(s=>s.id!==id); await saveSO(); renderSO(); toast('Slettet');
 }
 
-function openSOPickList(soId){
-  loadSO();
+async function openSOPickList(soId){
+  await loadSO();
   const so=allSO.find(s=>s.id===soId); if(!so) return;
   const title=document.getElementById('pick-modal-title');
   title.textContent=`Plukliste — ${so.id} — ${so.customer}`;
