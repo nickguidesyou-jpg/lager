@@ -2156,6 +2156,11 @@ function renderItems(){
     const r = rooms.find(r=>r.id===i.room);
     const ms = !q || [i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
     return ms && (activeCat==='Alle'||i.cat===activeCat);
+  }).sort((a,b)=>{
+    // Primær: kategori (CATS-rækkefølge), sekundær: navn
+    const ai=CATS.indexOf(a.cat), bi=CATS.indexOf(b.cat);
+    const catSort=(ai===-1?999:ai)-(bi===-1?999:bi);
+    return catSort!==0 ? catSort : (a.name||'').localeCompare(b.name||'','da');
   });
   const tb = document.getElementById('items-tbody'), em = document.getElementById('items-empty');
   if(!fil.length){ tb.innerHTML=''; em.style.display=''; document.getElementById('check-all').checked=false;
@@ -2174,6 +2179,9 @@ function renderItems(){
     const unitPrice = match ? match.price : null;
     const lineValue = unitPrice !== null ? unitPrice * qty : null;
     if(lineValue !== null){ totalValue += lineValue; valuedCount++; }
+    const reserved = parseInt(i.reserved||0);
+    const disponibel = qty - reserved;
+    const bundleCap = getBundleCapacity(i);
 
     const priceTitle = match && match.how==='name' ? ` title="Matchet på navn: ${match.sesuName||''}"` : '';
     const sesuUrl = match && match.url ? match.url : null;
@@ -2196,8 +2204,9 @@ function renderItems(){
       <td style="display:flex;align-items:center;gap:10px">
         ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0" loading="lazy" onerror="this.style.display='none'">`:''}
         <div>
-          <div class="td-name">${esc(i.name)}</div>
+          <div class="td-name">${esc(i.name)}${i.bundle_json?'<span style="font-size:9px;background:rgba(99,102,241,.12);color:rgb(99,102,241);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700;vertical-align:middle">SÆT</span>':''}</div>
           ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
+          ${bundleCap!==null?`<div class="td-sub">Kan fremstille: <strong>${bundleCap}</strong> sæt</div>`:''}
         </div>
       </td>
       <td>${catBadge(i.cat)}</td>
@@ -2208,6 +2217,7 @@ function renderItems(){
       <td>
         <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${esc(i.qty)}</span>
         ${low?'<span class="badge badge-red" style="margin-left:4px;font-size:9px">LAV</span>':''}
+        ${reserved>0?`<div class="td-sub">${disponibel} dis. · ${reserved} res.</div>`:''}
       </td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
       ${priceCell}
@@ -2316,6 +2326,10 @@ function openItemModal(id, preRoom, tpl){
   const supplier=it?it.supplier||'':'';
   const costPrice=it?it.costPrice||'':'';
   const moq=it?it.moq||'':'';
+  const reserved=it&&!isTpl?parseInt(it.reserved||0):0;
+  let bundleComps=[]; try{ if(it&&!isTpl&&it.bundle_json) bundleComps=JSON.parse(it.bundle_json); }catch(e){}
+  window._bundleComps=bundleComps.slice();
+  window._bundleEditId=id||null;
   const sesuImg = sesuPricesLoaded ? (findSesuPrice(nm, sku)?.image||'') : '';
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
@@ -2345,6 +2359,7 @@ function openItemModal(id, preRoom, tpl){
           </div>
         </div>
         <div class="fg"><label style="display:flex;justify-content:space-between;align-items:center">Min. beholdning <button type="button" onclick="suggestMinQty('${id||''}')" style="font-size:10px;font-weight:600;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:4px;padding:1px 6px;cursor:pointer;line-height:1.5" title="Beregn ud fra forbrug × leveringstid">✦ Auto</button></label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
+        <div class="fg"><label>Reserveret</label><input id="f-reserved" type="number" value="${reserved}" min="0" title="Stk. reserveret til specifikke ordrer — trækkes fra disponibel beholdning"></div>
         <div class="fg"><label>Leveringstid (dage)</label><input id="f-lead" type="number" value="${lead||''}" min="0" placeholder="—" title="Dage fra bestilling til hylde"></div>
       </div>
       <div class="form-row">
@@ -2353,6 +2368,13 @@ function openItemModal(id, preRoom, tpl){
       </div>
       ${allLeverandoerer.length ? `<div class="fg"><label>Leverandør</label><select id="f-supplier"><option value="">— ingen —</option>${allLeverandoerer.map(l=>`<option value="${esc(l.id)}"${l.id===supplier?' selected':''}>${esc(l.name)}</option>`).join('')}</select></div>` : ''}
       <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${esc(note)}</textarea></div>
+      <div style="border-top:1px solid var(--border-light);margin-top:8px;padding-top:14px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink-2)">
+          <input type="checkbox" id="f-is-bundle" ${bundleComps.length?'checked':''} style="width:15px;height:15px;cursor:pointer" onchange="document.getElementById('bundle-section').style.display=this.checked?'block':'none';if(this.checked)renderBundleSection()">
+          Dette er et sæt/bundt (bruger andre lagervarer)
+        </label>
+        <div id="bundle-section" style="display:${bundleComps.length?'block':'none'};margin-top:12px"></div>
+      </div>
       ${id ? '<div id="item-prognose"></div>' : ''}
     </div>
     <div class="modal-foot">
@@ -2361,6 +2383,7 @@ function openItemModal(id, preRoom, tpl){
       <button class="btn btn-primary" onclick="saveItem('${id||''}',${!!id})">${id?'Gem ændringer':'Tilføj vare'}</button>
     </div>`;
   openModal();
+  if(bundleComps.length) renderBundleSection();
   if(id) renderItemPrognose(id);
 }
 
@@ -2370,6 +2393,55 @@ function duplicateItem(id){
   const it=items.find(i=>i.id===id); if(!it) return;
   closeModal();
   openItemModal(null, null, it);
+}
+
+function getBundleCapacity(item){
+  if(!item.bundle_json) return null;
+  try {
+    const comps=JSON.parse(item.bundle_json);
+    if(!comps.length) return null;
+    return Math.floor(Math.min(...comps.map(c=>{
+      const ci=items.find(x=>x.id===c.id);
+      if(!ci) return 0;
+      const avail=Math.max(0,parseInt(ci.qty||0)-parseInt(ci.reserved||0));
+      return avail/c.qty;
+    })));
+  } catch(e){ return null; }
+}
+
+function renderBundleSection(){
+  const el=document.getElementById('bundle-section'); if(!el) return;
+  const comps=window._bundleComps||[];
+  el.innerHTML=`
+    <div style="font-size:12px;color:var(--ink-2);margin-bottom:8px">Definér hvilke lager-varer sættet indeholder pr. sæt:</div>
+    ${comps.map((c,idx)=>{
+      const ci=items.find(x=>x.id===c.id);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;background:var(--surface-2);border-radius:6px;padding:6px 10px">
+        <span style="flex:1;font-size:12px">${esc(ci?.name||c.id)}</span>
+        <input type="number" min="1" value="${c.qty}" style="width:60px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;background:var(--white)" onchange="window._bundleComps[${idx}].qty=Math.max(1,parseInt(this.value)||1)" title="Antal stk. pr. sæt">
+        <span style="font-size:11px;color:var(--ink-3)">stk/sæt</span>
+        <button onclick="window._bundleComps.splice(${idx},1);renderBundleSection()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1;padding:0 4px" title="Fjern">✕</button>
+      </div>`;
+    }).join('')}
+    ${comps.length===0?'<div style="font-size:12px;color:var(--ink-3);margin-bottom:10px">Ingen komponenter tilføjet endnu</div>':''}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="bundle-add-item" style="flex:1;min-width:140px;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--white);color:var(--ink)">
+        <option value="">— vælg komponent —</option>
+        ${items.filter(x=>x.id!==window._bundleEditId).map(x=>`<option value="${esc(x.id)}">${esc(x.name)}${x.qty?' ('+x.qty+' stk)':''}</option>`).join('')}
+      </select>
+      <input type="number" id="bundle-add-qty" min="1" value="1" style="width:64px;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--white)" placeholder="Antal">
+      <button onclick="addBundleComp()" class="btn btn-sm btn-primary">+ Tilføj</button>
+    </div>`;
+}
+
+function addBundleComp(){
+  const itemId=document.getElementById('bundle-add-item')?.value;
+  const qty=Math.max(1,parseInt(document.getElementById('bundle-add-qty')?.value||1));
+  if(!itemId){ toast('Vælg en komponent-vare'); return; }
+  if(!window._bundleComps) window._bundleComps=[];
+  const ex=window._bundleComps.find(c=>c.id===itemId);
+  if(ex) ex.qty+=qty; else window._bundleComps.push({id:itemId,qty});
+  renderBundleSection();
 }
 
 function suggestMinQty(itemId){
@@ -2462,7 +2534,9 @@ async function saveItem(id, edit){
     leadDays:document.getElementById('f-lead')?.value||'',
     supplier:document.getElementById('f-supplier')?.value||'',
     costPrice:document.getElementById('f-cost')?.value||'',
-    moq:document.getElementById('f-moq')?.value||'' };
+    moq:document.getElementById('f-moq')?.value||'',
+    reserved:document.getElementById('f-reserved')?.value||'0',
+    bundle_json:(document.getElementById('f-is-bundle')?.checked&&window._bundleComps?.length)?JSON.stringify(window._bundleComps):'' };
   closeModal(); sync('load','Gemmer…');
   try {
     const r=await jsonp(p);
@@ -5292,13 +5366,14 @@ function renderIndkob(){
   const el = document.getElementById('tab-indkob');
   if(!el || el.style.display==='none') return;
 
-  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  const low = items.filter(i=>(parseInt(i.qty||0)-parseInt(i.reserved||0))<parseInt(i.minQty||0));
   const out  = low.filter(i=>parseInt(i.qty||0)===0);
   const lowS = low.filter(i=>parseInt(i.qty||0)>0);
 
   let totalSesuCost=0, sesuCount=0, totalOwnCost=0, ownCount=0;
   low.forEach(i=>{
-    const need=Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));
+    const dispon=parseInt(i.qty||0)-parseInt(i.reserved||0);
+    const need=Math.max(0,parseInt(i.minQty||0)-dispon);
     const moq=parseInt(i.moq||0);
     const orderQty=moq?Math.ceil(need/moq)*moq:need;
     const match=sesuPricesLoaded?findSesuPrice(i.name,i.sku):null;
@@ -5335,7 +5410,8 @@ function renderIndkob(){
   }
 
   function rowHtml(i){
-    const need=Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));
+    const dispon=parseInt(i.qty||0)-parseInt(i.reserved||0);
+    const need=Math.max(0,parseInt(i.minQty||0)-dispon);
     const moq=parseInt(i.moq||0);
     const orderQty=moq?Math.ceil(need/moq)*moq:need;
     const r=rooms.find(r=>r.id===i.room);
