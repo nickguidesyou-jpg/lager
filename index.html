@@ -1250,6 +1250,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       <button class="nav-item" onclick="showTab('leverandoerer')" id="nav-leverandoerer">
         <span class="nav-icon">🏢</span> Leverandører
       </button>
+      <button class="nav-item" onclick="showTab('indkoebsordrer')" id="nav-indkoebsordrer">
+        <span class="nav-icon">📋</span> Indkøbsordrer
+      </button>
       <button class="nav-item" onclick="showTab('rapporter')" id="nav-rapporter">
         <span class="nav-icon">📊</span> Rapporter
       </button>
@@ -1512,6 +1515,36 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         </div>
       </div>
 
+      <!-- INDKØBSORDRER -->
+      <div id="tab-indkoebsordrer" class="view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:13px;color:var(--ink-3)">Spor bestillinger fra oprettelse til modtagelse</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="poLoaded=false;loadIndkoebsordrer()">⟳ Opdater</button>
+            <button class="btn btn-primary btn-sm" onclick="openPOModal(null)">+ Ny indkøbsordre</button>
+          </div>
+        </div>
+        <div id="po-stats" class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"></div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th style="width:12%">Reference</th>
+                <th>Leverandør</th>
+                <th style="width:14%">Oprettet</th>
+                <th style="width:14%">Forv. levering</th>
+                <th style="width:9%">Status</th>
+                <th style="width:8%">Linjer</th>
+                <th style="width:14%"></th>
+              </tr></thead>
+              <tbody id="po-tbody">
+                <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Henter…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- INDKØBSLISTE -->
       <div id="tab-indkob" class="view" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
@@ -1529,12 +1562,13 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
             <table>
               <thead><tr>
                 <th>Vare</th>
-                <th>Placering</th>
+                <th class="hide-sm">Placering</th>
                 <th style="width:11%">Lager / Min.</th>
-                <th style="width:8%">Mangler</th>
-                <th style="width:11%">Enhedspris</th>
-                <th style="width:11%">Est. kostpris</th>
-                <th style="width:10%">Bestil inden</th>
+                <th style="width:8%">Bestil</th>
+                <th style="width:9%" class="hide-sm">Dækningsdage</th>
+                <th style="width:11%" class="hide-sm">Enhedspris</th>
+                <th style="width:11%" class="hide-sm">Est. kostpris</th>
+                <th style="width:10%" class="hide-sm">Bestil inden</th>
                 <th style="width:9%"></th>
               </tr></thead>
               <tbody id="indkob-tbody">
@@ -1675,7 +1709,7 @@ const API = 'https://script.google.com/macros/s/AKfycbwdbhEo-na7UVPQ4raRAz22NhVx
 let CATS = JSON.parse(localStorage.getItem('lager_cats')||'null') || ['Bordben','Beslag','Hyldeplader','Skruer & bolte','Møbelben','Hjul & gliders','Andet'];
 const BADGE_POOL = ['badge-blue','badge-green','badge-amber','badge-gray','badge-blue','badge-green','badge-amber'];
 function getBadgeClass(cat){ const i=CATS.indexOf(cat); return i>=0?BADGE_POOL[i%BADGE_POOL.length]:'badge-gray'; }
-const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling', modtagelse:'Varemodtagelse', leverandoerer:'Leverandører', rapporter:'Rapporter' };
+const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling', modtagelse:'Varemodtagelse', leverandoerer:'Leverandører', rapporter:'Rapporter', indkoebsordrer:'Indkøbsordrer' };
 
 let items=[], rooms=[], selRoom=null, activeCat='Alle';
 let allTemplates=[], templatesLoaded=false;
@@ -1683,6 +1717,7 @@ let histEntries=[], histLoaded=false;
 let allLeverandoerer=[], leverandoererLoaded=false;
 let recvDraft={}; // {itemId: receivedQty}
 let notifLowSet=new Set(); // ids already notified this session
+let allPO=[], poLoaded=false;
 let autoTimer = null;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
@@ -2171,6 +2206,8 @@ function openItemModal(id, preRoom){
   const minQ=it?parseInt(it.minQty):10, sku=it?it.sku:'', note=it?it.note:'';
   const lead=it?parseInt(it.leadDays||0):0;
   const supplier=it?it.supplier||'':'';
+  const costPrice=it?it.costPrice||'':'';
+  const moq=it?it.moq||'':'';
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
       <div class="modal-title">${id?'Rediger vare':'Tilføj ny vare'}</div>
@@ -2198,6 +2235,10 @@ function openItemModal(id, preRoom){
         <div class="fg"><label>Min. beholdning</label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
         <div class="fg"><label>Leveringstid (dage)</label><input id="f-lead" type="number" value="${lead||''}" min="0" placeholder="—" title="Dage fra bestilling til hylde"></div>
       </div>
+      <div class="form-row">
+        <div class="fg"><label>Indkøbspris (kr./stk)</label><input id="f-cost" type="number" min="0" step="0.01" value="${esc(costPrice)}" placeholder="—" title="Hvad du betaler leverandøren per stk"></div>
+        <div class="fg"><label>Min. bestillingsmængde</label><input id="f-moq" type="number" min="1" value="${esc(moq)}" placeholder="—" title="Mindste antal man kan bestille ad gangen"></div>
+      </div>
       ${allLeverandoerer.length ? `<div class="fg"><label>Leverandør</label><select id="f-supplier"><option value="">— ingen —</option>${allLeverandoerer.map(l=>`<option value="${esc(l.id)}"${l.id===supplier?' selected':''}>${esc(l.name)}</option>`).join('')}</select></div>` : ''}
       <div class="fg"><label>Note</label><textarea id="f-note" placeholder="Evt. kommentar…">${esc(note)}</textarea></div>
     </div>
@@ -2224,7 +2265,9 @@ async function saveItem(id, edit){
     sku:document.getElementById('f-sku').value.trim(),
     note:document.getElementById('f-note').value.trim(),
     leadDays:document.getElementById('f-lead')?.value||'',
-    supplier:document.getElementById('f-supplier')?.value||'' };
+    supplier:document.getElementById('f-supplier')?.value||'',
+    costPrice:document.getElementById('f-cost')?.value||'',
+    moq:document.getElementById('f-moq')?.value||'' };
   closeModal(); sync('load','Gemmer…');
   try {
     const r=await jsonp(p);
@@ -2284,9 +2327,9 @@ async function delRoom(id){
 }
 
 function showTab(t){
-  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter']);
+  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer']);
   if(!VALID.has(t)) t = 'oversigt';
-  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter'].forEach(n=>{
+  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer'].forEach(n=>{
     const el = document.getElementById('tab-'+n);
     if(el) el.style.display = n===t ? 'block' : 'none';
     const nav = document.getElementById('nav-'+n);
@@ -2309,6 +2352,7 @@ function showTab(t){
   if(t === 'modtagelse') renderModtagelse();
   if(t === 'leverandoerer') renderLeverandoerer();
   if(t === 'rapporter') renderRapporter(false);
+  if(t === 'indkoebsordrer') { if(!poLoaded) loadIndkoebsordrer(); else renderIndkoebsordrer(); }
   if(t === 'indkob') priceReady.then(()=>renderIndkob());
   if(t === 'historik' && !histLoaded) loadHistorik();
 }
@@ -4444,6 +4488,246 @@ function exportSnapshotCSV(idx){
   toast('Snapshot eksporteret til CSV');
 }
 
+// ── DÆKNINGSDAGE ──
+function daekningsdage(itemId){
+  if(!histLoaded||!histEntries.length) return null;
+  const cut=new Date(Date.now()-30*86400000).toISOString();
+  const consumed=histEntries
+    .filter(e=>e.item_id===itemId&&e.ts>=cut)
+    .reduce((s,e)=>{const d=parseInt(e.to_qty||0)-parseInt(e.from_qty||0); return s+(d<0?-d:0);},0);
+  if(consumed===0) return null;
+  const it=items.find(i=>i.id===itemId);
+  if(!it) return null;
+  const qty=parseInt(it.qty||0);
+  if(qty<=0) return 0;
+  const dailyRate=consumed/30;
+  return qty/dailyRate;
+}
+
+// ── INDKØBSORDRER ──
+async function loadIndkoebsordrer(){
+  poLoaded=false;
+  const tbody=document.getElementById('po-tbody');
+  if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Henter…</td></tr>';
+  try {
+    const d=await jsonp({action:'getIndkoebsordrer'});
+    if(d.error) throw new Error(d.error);
+    allPO=Array.isArray(d)?d:[];
+    poLoaded=true;
+    renderIndkoebsordrer();
+  } catch(e){
+    if(tbody) tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--red)">Fejl: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+const PO_STATUS={åben:{label:'Åben',cls:'badge-blue'},delvist:{label:'Delvist',cls:'badge-amber'},lukket:{label:'Lukket',cls:'badge-green'},annulleret:{label:'Annulleret',cls:'badge-gray'}};
+
+function renderIndkoebsordrer(){
+  const tbody=document.getElementById('po-tbody');
+  if(!tbody) return;
+  const statsEl=document.getElementById('po-stats');
+
+  const aaben=allPO.filter(p=>p.status==='åben');
+  const delvist=allPO.filter(p=>p.status==='delvist');
+  if(statsEl) statsEl.innerHTML=`
+    <div class="stat-card blue"><div class="stat-label">Åbne ordrer</div><div class="stat-value">${aaben.length}</div><div class="stat-detail">afventer levering</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Delvise</div><div class="stat-value">${delvist.length}</div><div class="stat-detail">delvist modtaget</div></div>
+    <div class="stat-card"><div class="stat-label">Lukkede</div><div class="stat-value">${allPO.filter(p=>p.status==='lukket').length}</div><div class="stat-detail">fuldt modtaget</div></div>
+    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">${allPO.length}</div><div class="stat-detail">alle ordrer</div></div>`;
+
+  if(!allPO.length){
+    tbody.innerHTML='<tr><td colspan="7"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">Ingen indkøbsordrer endnu — opret din første ordre</div></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML=allPO.map(po=>{
+    let created=''; try{ created=new Date(po.created).toLocaleDateString('da-DK',{day:'numeric',month:'short',year:'numeric'}); }catch(x){}
+    let expDate='—'; if(po.expected_date){ try{ expDate=new Date(po.expected_date).toLocaleDateString('da-DK',{day:'numeric',month:'short',year:'numeric'}); }catch(x){} }
+    const isLate=po.expected_date&&po.status==='åben'&&po.expected_date<new Date().toISOString().slice(0,10);
+    const st=PO_STATUS[po.status]||{label:po.status,cls:'badge-gray'};
+    const items_count=po.items?po.items.length:0;
+    return `<tr>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${esc(po.id.slice(-6).toUpperCase())}</td>
+      <td><div class="td-name">${esc(po.supplier_name||'—')}</div>${po.notes?`<div style="font-size:11px;color:var(--ink-3)">${esc(po.notes.slice(0,40))}</div>`:''}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${esc(created)}</td>
+      <td style="font-size:12px;color:${isLate?'var(--red)':'inherit'}">${esc(expDate)}${isLate?' ⚠':''}</td>
+      <td><span class="badge ${st.cls}">${st.label}</span></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${items_count}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openPOModal('${esc(po.id)}')">Vis</button>
+        ${po.status==='åben'||po.status==='delvist'?`<button class="btn btn-primary btn-sm" onclick="openReceivePO('${esc(po.id)}')">Modtag</button>`:''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function openPOModal(id){
+  const po=id?allPO.find(p=>p.id===id):null;
+  const poItems=po?po.items:[];
+  let draftItems=po?poItems.map(e=>({...e})):[];
+
+  const renderDraft=()=>{
+    const el=document.getElementById('po-item-list'); if(!el) return;
+    if(!draftItems.length){ el.innerHTML='<div style="font-size:12px;color:var(--ink-3);padding:8px 0">Ingen varer tilføjet endnu</div>'; return; }
+    el.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Vare</th><th style="width:12%">SKU</th><th style="width:14%">Bestilt</th><th style="width:14%">Modtaget</th><th style="width:6%"></th></tr></thead><tbody>${
+      draftItems.map((e,i)=>`<tr>
+        <td style="font-size:13px">${esc(e.name)}</td>
+        <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(e.sku||'')}</td>
+        <td><input type="number" min="1" value="${e.orderedQty||1}" style="width:60px;border:1.5px solid var(--border);border-radius:var(--radius);padding:4px 6px;font-size:12px;font-family:'IBM Plex Mono',monospace" oninput="window._poDraft=${JSON.stringify('x')};draftItems[${i}].orderedQty=Math.max(1,parseInt(this.value)||1)"></td>
+        <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${e.receivedQty??'—'}</td>
+        <td><button onclick="draftItems.splice(${i},1);renderDraft()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  };
+
+  const levOpts=allLeverandoerer.map(l=>`<option value="${esc(l.id)}"${po&&po.supplier_id===l.id?' selected':''}>${esc(l.name)}</option>`).join('');
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">${id?'Indkøbsordre #'+id.slice(-6).toUpperCase():'Ny indkøbsordre'}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="fg"><label>Leverandør</label>${allLeverandoerer.length?`<select id="po-lev"><option value="">— vælg —</option>${levOpts}</select>`:`<input id="po-lev-name" value="${esc(po?.supplier_name||'')}" placeholder="Leverandørnavn">`}</div>
+        <div class="fg"><label>Forv. leveringsdato</label><input id="po-exp" type="date" value="${esc(po?.expected_date||'')}"></div>
+      </div>
+      <div class="fg"><label>Note</label><input id="po-notes" value="${esc(po?.notes||'')}" placeholder="Ordrenummer, betingelser…"></div>
+      <div style="margin:16px 0 8px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:600;color:var(--ink-2)">Varer i ordren</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="po-item-search" placeholder="Søg og tilføj vare…" style="border:1.5px solid var(--border);border-radius:var(--radius);padding:6px 10px;font-size:12px;width:200px" oninput="renderPOSearchDrop(this.value,draftItems)">
+          <div id="po-item-drop" style="position:relative"></div>
+        </div>
+      </div>
+      <div id="po-item-list"></div>
+    </div>
+    <div class="modal-foot">
+      ${id&&po.status!=='lukket'?`<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="if(confirm('Annuller ordren?'))savePOStatus('${id}','annulleret')">Annuller ordre</button>`:''}
+      <button class="btn" onclick="closeModal()">Luk</button>
+      <button class="btn btn-primary" onclick="savePOFn('${id||''}',draftItems)">Gem ordre</button>
+    </div>`;
+
+  // expose draftItems to inline handlers via closure workaround
+  window._poDraftItems=draftItems;
+  window._renderPODraft=renderDraft;
+  renderDraft();
+
+  // search dropdown logic
+  window.renderPOSearchDrop=(q,draft)=>{
+    const drop=document.getElementById('po-item-drop'); if(!drop) return;
+    if(!q.trim()){ drop.innerHTML=''; return; }
+    const hits=items.filter(i=>i.name.toLowerCase().includes(q.toLowerCase())||i.sku.toLowerCase().includes(q.toLowerCase())).slice(0,6);
+    if(!hits.length){ drop.innerHTML=''; return; }
+    drop.innerHTML=`<div style="position:absolute;right:0;top:4px;min-width:240px;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);box-shadow:var(--shadow-md);z-index:50;max-height:200px;overflow-y:auto">${
+      hits.map(i=>`<div onclick="
+        window._poDraftItems.push({id:'${i.id}',name:${JSON.stringify(i.name)},sku:${JSON.stringify(i.sku||'')},orderedQty:1,receivedQty:0});
+        document.getElementById('po-item-search').value='';
+        document.getElementById('po-item-drop').innerHTML='';
+        window._renderPODraft();" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light)">${esc(i.name)}${i.sku?` <span style="font-size:10px;color:var(--ink-3)">${esc(i.sku)}</span>`:''}</div>`).join('')
+    }</div>`;
+  };
+  openModal();
+}
+
+async function savePOFn(id, draftItems){
+  const levEl=document.getElementById('po-lev');
+  const levNameEl=document.getElementById('po-lev-name');
+  let supplier_id='', supplier_name='';
+  if(levEl){ const lev=allLeverandoerer.find(l=>l.id===levEl.value); supplier_id=levEl.value; supplier_name=lev?lev.name:''; }
+  else if(levNameEl){ supplier_name=levNameEl.value.trim(); }
+  if(!supplier_name){ toast('Angiv en leverandør'); return; }
+  if(!draftItems.length){ toast('Tilføj mindst én vare'); return; }
+  const p={ action:'saveIndkoebsordre', id:id||'',
+    supplier_id, supplier_name,
+    expected_date:document.getElementById('po-exp')?.value||'',
+    status:id?(allPO.find(x=>x.id===id)?.status||'åben'):'åben',
+    items_json:JSON.stringify(draftItems.map(e=>({...e,orderedQty:parseInt(e.orderedQty)||1}))),
+    notes:document.getElementById('po-notes')?.value.trim()||'' };
+  closeModal();
+  try {
+    await jsonp(p);
+    poLoaded=false; await loadIndkoebsordrer();
+    toast(id?'Ordre opdateret':'Indkøbsordre oprettet');
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+async function savePOStatus(id,status){
+  const po=allPO.find(p=>p.id===id); if(!po) return;
+  try {
+    await jsonp({action:'saveIndkoebsordre',...po,status,items_json:JSON.stringify(po.items||[])});
+    poLoaded=false; closeModal(); await loadIndkoebsordrer();
+    toast('Ordrestatus opdateret');
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+function openReceivePO(id){
+  const po=allPO.find(p=>p.id===id); if(!po) return;
+  const poItems=po.items||[];
+  if(!poItems.length){ toast('Ingen varer på ordren'); return; }
+  let recvQtys={};
+  poItems.forEach(e=>{ recvQtys[e.id]=e.orderedQty-( e.receivedQty||0); });
+
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📥 Modtag — ${esc(po.supplier_name)} #${id.slice(-6).toUpperCase()}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Angiv antal modtaget for hver vare. Lager opdateres automatisk.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Vare</th><th style="width:14%">Bestilt</th><th style="width:14%">Modtaget tidl.</th><th style="width:14%">Modtager nu</th></tr></thead>
+        <tbody>${poItems.map((e,i)=>`<tr>
+          <td><div class="td-name">${esc(e.name)}</div></td>
+          <td style="font-family:'IBM Plex Mono',monospace">${e.orderedQty}</td>
+          <td style="font-family:'IBM Plex Mono',monospace;color:var(--ink-3)">${e.receivedQty||0}</td>
+          <td><input type="number" min="0" value="${Math.max(0,(e.orderedQty||0)-(e.receivedQty||0))}" id="rcv-${i}" style="width:64px;border:1.5px solid var(--border);border-radius:var(--radius);padding:4px 6px;font-size:12px;font-family:'IBM Plex Mono',monospace"></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="confirmReceivePO('${id}',${JSON.stringify(poItems)})">Gem modtagelse</button>
+    </div>`;
+  openModal();
+}
+
+async function confirmReceivePO(id, poItems){
+  const updates=poItems.map((e,i)=>({
+    ...e,
+    receivedNow:Math.max(0,parseInt(document.getElementById('rcv-'+i)?.value||0)),
+  })).filter(e=>e.receivedNow>0);
+  if(!updates.length){ toast('Angiv mindst ét antal'); return; }
+
+  closeModal();
+  sync('load','Opdaterer lager…');
+  try {
+    await Promise.all(updates.map(async e=>{
+      const it=items.find(i=>i.id===e.id); if(!it) return;
+      const orig=parseInt(it.qty||0), newQty=orig+e.receivedNow;
+      await jsonp({...it, action:'saveItem', qty:newQty});
+      jsonp({action:'logMovement',item_id:it.id,item_name:it.name,from_qty:orig,to_qty:newQty,note:'Indkøbsordre '+id.slice(-6).toUpperCase()}).catch(()=>{});
+    }));
+
+    // Update PO received quantities and status
+    const po=allPO.find(p=>p.id===id); if(!po) return;
+    const updatedItems=po.items.map((e,i)=>{
+      const upd=updates.find(u=>u.id===e.id);
+      const newReceived=(parseInt(e.receivedQty||0))+(upd?upd.receivedNow:0);
+      return {...e,receivedQty:newReceived};
+    });
+    const allReceived=updatedItems.every(e=>e.receivedQty>=e.orderedQty);
+    const anyReceived=updatedItems.some(e=>(e.receivedQty||0)>0);
+    const newStatus=allReceived?'lukket':anyReceived?'delvist':'åben';
+    await jsonp({action:'saveIndkoebsordre',...po,status:newStatus,items_json:JSON.stringify(updatedItems)});
+
+    histLoaded=false;
+    poLoaded=false;
+    toast(`${updates.length} vare${updates.length===1?'':'r'} modtaget og lager opdateret`);
+    await Promise.all([loadAll(),loadIndkoebsordrer()]);
+  } catch(e){
+    sync('err','Fejl'); toast('Fejl: '+e.message);
+  }
+}
+
 // ── INDKØBSLISTE ──
 function renderIndkob(){
   const el = document.getElementById('tab-indkob');
@@ -4453,12 +4737,17 @@ function renderIndkob(){
   const out  = low.filter(i=>parseInt(i.qty||0)===0);
   const lowS = low.filter(i=>parseInt(i.qty||0)>0);
 
-  let totalCost=0, costedCount=0;
+  let totalSesuCost=0, sesuCount=0, totalOwnCost=0, ownCount=0;
   low.forEach(i=>{
-    const need=parseInt(i.minQty||0)-parseInt(i.qty||0);
+    const need=Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));
+    const moq=parseInt(i.moq||0);
+    const orderQty=moq?Math.ceil(need/moq)*moq:need;
     const match=sesuPricesLoaded?findSesuPrice(i.name,i.sku):null;
-    if(match){ totalCost+=match.price*need; costedCount++; }
+    if(match){ totalSesuCost+=match.price*orderQty; sesuCount++; }
+    if(i.costPrice){ totalOwnCost+=parseFloat(i.costPrice)*orderQty; ownCount++; }
   });
+  const costVal=ownCount>0?totalOwnCost:totalSesuCost;
+  const costLbl=ownCount>0?`${ownCount} indkøbspriser`:(sesuCount>0?`${sesuCount} sesu.dk priser`:'—');
 
   const statsEl=document.getElementById('indkob-stats');
   if(statsEl) statsEl.innerHTML=`
@@ -4469,13 +4758,13 @@ function renderIndkob(){
     </div>
     <div class="stat-card">
       <div class="stat-label">Samlet enheder</div>
-      <div class="stat-value">${low.reduce((s,i)=>s+Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0)),0)}</div>
-      <div class="stat-detail">enheder skal genbestilles</div>
+      <div class="stat-value">${low.reduce((s,i)=>{const n=Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));const m=parseInt(i.moq||0);return s+(m?Math.ceil(n/m)*m:n);},0)}</div>
+      <div class="stat-detail">inkl. MOQ-afrunding</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Est. kostpris</div>
-      <div class="stat-value" style="font-size:${totalCost>99999?'16px':'20px'}">${totalCost>0?totalCost.toLocaleString('da-DK')+' kr.':'—'}</div>
-      <div class="stat-detail">${costedCount>0?'baseret på '+costedCount+' sesu.dk priser':'hent priser under Alle varer'}</div>
+      <div class="stat-label">Est. indkøbspris</div>
+      <div class="stat-value" style="font-size:${costVal>99999?'16px':'20px'}">${costVal>0?Math.round(costVal).toLocaleString('da-DK')+' kr.':'—'}</div>
+      <div class="stat-detail">${costLbl}</div>
     </div>`;
 
   const tbody=document.getElementById('indkob-tbody');
@@ -4488,10 +4777,12 @@ function renderIndkob(){
 
   function rowHtml(i){
     const need=Math.max(0,parseInt(i.minQty||0)-parseInt(i.qty||0));
+    const moq=parseInt(i.moq||0);
+    const orderQty=moq?Math.ceil(need/moq)*moq:need;
     const r=rooms.find(r=>r.id===i.room);
     const match=sesuPricesLoaded?findSesuPrice(i.name,i.sku):null;
-    const unitPrice=match?match.price:null;
-    const lineCost=unitPrice?unitPrice*need:null;
+    const unitPrice=i.costPrice?parseFloat(i.costPrice):(match?match.price:null);
+    const lineCost=unitPrice?unitPrice*orderQty:null;
     const sesuLink=match&&match.url?`<a href="${match.url}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="font-size:10px">↗ sesu.dk</a>`:'';
     const qty=parseInt(i.qty||0);
     const lead=parseInt(i.leadDays||0);
@@ -4499,18 +4790,23 @@ function renderIndkob(){
     if(lead>0){
       const d=new Date(Date.now()+lead*86400000);
       const fmt=d.toLocaleDateString('da-DK',{day:'numeric',month:'short'});
-      const daysLeft=lead;
-      const urgent=daysLeft<=3;
-      deadlineHtml=`<span class="deadline-pill" style="${urgent?'background:var(--red-dim);color:var(--red)':''}">${fmt} (${daysLeft}d)</span>`;
+      const urgent=lead<=3;
+      deadlineHtml=`<span class="deadline-pill" style="${urgent?'background:var(--red-dim);color:var(--red)':''}">${fmt} (${lead}d)</span>`;
     }
+    const dd=daekningsdage(i.id);
+    const ddHtml=dd===null?'<span style="color:var(--ink-3);font-size:11px">—</span>':
+      dd===Infinity?'<span style="color:var(--green);font-size:11px">∞</span>':
+      `<span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${dd<7?'var(--red)':dd<30?'var(--amber)':'var(--green)'};font-size:12px">${Math.round(dd)}d</span>`;
+    const moqNote=moq&&orderQty>need?`<div style="font-size:10px;color:var(--blue)">MOQ ${moq} → ${orderQty} stk</div>`:'';
     return `<tr>
       <td><div class="td-name">${esc(i.name)}</div>${catBadge(i.cat)}</td>
-      <td style="font-size:12px;color:var(--ink-3)">${r?esc(r.name)+' · ':''}<span style="font-family:'IBM Plex Mono',monospace">${esc(i.shelf)}</span></td>
+      <td class="hide-sm" style="font-size:12px;color:var(--ink-3)">${r?esc(r.name)+' · ':''}<span style="font-family:'IBM Plex Mono',monospace">${esc(i.shelf)}</span></td>
       <td style="font-family:'IBM Plex Mono',monospace;color:${qty===0?'var(--red)':'var(--amber)'}">${qty===0?'Udsolgt':esc(i.qty)+' / '+esc(i.minQty)}</td>
-      <td><span class="delta-down">+${need}</span></td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--blue)">${unitPrice?unitPrice.toLocaleString('da-DK')+' kr.':'—'}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${lineCost?lineCost.toLocaleString('da-DK')+' kr.':'—'}</td>
-      <td>${deadlineHtml}</td>
+      <td><span class="delta-down">+${orderQty}</span>${moqNote}</td>
+      <td class="hide-sm">${ddHtml}</td>
+      <td class="hide-sm" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${i.costPrice?'var(--ink)':'var(--blue)'}">${unitPrice?unitPrice.toLocaleString('da-DK')+' kr.':'—'}${i.costPrice?'':match?' <span style="font-size:9px;color:var(--ink-3)">sesu</span>':''}</td>
+      <td class="hide-sm" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${lineCost?Math.round(lineCost).toLocaleString('da-DK')+' kr.':'—'}</td>
+      <td class="hide-sm">${deadlineHtml}</td>
       <td><div class="td-actions">${sesuLink}<button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button></div></td>
     </tr>`;
   }
