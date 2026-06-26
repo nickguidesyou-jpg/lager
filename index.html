@@ -1750,8 +1750,36 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <div style="background:var(--blue-dim);border:1px solid var(--blue-dim);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--blue);margin-bottom:16px;line-height:1.6">
           💡 Dette er dine tilgængelige fragtprodukter fra Shipmondo. Spørg <strong>AI-assistenten</strong> (✦) om aktuelle priser — den søger på nettet.
         </div>
+        <!-- PRISBEREGNER -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header"><span class="card-title">📦 Prisberegner</span><span style="font-size:11px;color:var(--ink-3)">ekskl. moms</span></div>
+          <div style="padding:14px 18px">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <label style="font-size:13px;font-weight:600;color:var(--ink-2)">Pakkevægt</label>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="calc-weight" placeholder="f.eks. 1500" min="1" max="20000" oninput="calcBedstePris()" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+                <span style="font-size:13px;color:var(--ink-3)">gram</span>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('calc-weight').value=500;calcBedstePris()">500g</button>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('calc-weight').value=1000;calcBedstePris()">1 kg</button>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('calc-weight').value=2000;calcBedstePris()">2 kg</button>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('calc-weight').value=5000;calcBedstePris()">5 kg</button>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('calc-weight').value=10000;calcBedstePris()">10 kg</button>
+              </div>
+            </div>
+            <div id="calc-result" style="margin-top:16px"></div>
+          </div>
+        </div>
+
+        <!-- STATISKE PRISTABELLER -->
+        <div id="static-carrier-cards"></div>
+        <div style="font-size:11px;color:var(--ink-3);text-align:right;margin-bottom:24px">Priser ekskl. moms · Indleveret ved terminal/pakkeshop</div>
+
+        <!-- SHIPMONDO PRODUKTER -->
         <div id="pris-loading" style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px">Henter fragtpriser…</div>
         <div id="pris-content" style="display:none">
+          <div style="font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Dine Shipmondo-produkter</div>
           <div id="pris-carriers"></div>
         </div>
       </div>
@@ -2747,7 +2775,7 @@ function showTab(t){
   const priceReady = loadSesuPrices();
   if(t === 'forsendelser' && !shipLoaded) priceReady.then(()=>{ if(!shipLoaded) loadShipments(); });
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
-  if(t === 'priser' && !prisLoaded) loadPriser();
+  if(t === 'priser'){ renderStaticCarrierCards(); if(!prisLoaded) loadPriser(); }
   if(t === 'optaelling') renderOptaelling();
   if(t === 'modtagelse'){ if(!recvItems.length) restoreRecvDraftLocal(); renderModtagelse(); }
   if(t === 'leverandoerer') renderLeverandoerer();
@@ -3468,6 +3496,121 @@ function renderPriser(products){
             }).join('')}
           </tbody>
         </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── STATISKE FRAGTPRISER ──
+const STATIC_PRICES = [
+  { carrier:'DAO', name:'daoSHOP (indleveret)', desc:'Pakke til udleveringssted · 1-3 dage', cat:'pakkeshop',
+    tiers:[{max:250,p:34.80},{max:500,p:36.60},{max:1000,p:38.43},{max:2000,p:42.51},{max:3000,p:44.55},{max:5000,p:46.59},{max:10000,p:54.96},{max:15000,p:64.55}]
+  },
+  { carrier:'DAO', name:'daoHOME (indleveret)', desc:'Pakke til privat · 1-3 dage', cat:'privat',
+    tiers:[{max:250,p:39.66},{max:500,p:41.29},{max:1000,p:42.51},{max:2000,p:46.59},{max:3000,p:49.45},{max:5000,p:52.51}]
+  },
+  { carrier:'GLS', name:'ShopDelivery', desc:'Pakke til udleveringssted · 1-2 hverdage', cat:'pakkeshop',
+    tiers:[{max:1000,p:34.80},{max:5000,p:39.80},{max:10000,p:58.40},{max:15000,p:74.00},{max:20000,p:96.00}]
+  },
+  { carrier:'GLS', name:'BusinessParcel', desc:'Pakke til erhverv · 1-2 hverdage', cat:'erhverv',
+    tiers:[{max:1000,p:46.00},{max:5000,p:55.00},{max:10000,p:74.00},{max:15000,p:83.00},{max:20000,p:99.00}]
+  },
+  { carrier:'GLS', name:'ShopReturn', desc:'Retur fra udleveringssted · 1-2 hverdage', cat:'retur',
+    tiers:[{max:1000,p:48.00},{max:5000,p:57.00},{max:10000,p:76.00},{max:15000,p:85.00},{max:20000,p:101.00}]
+  },
+  { carrier:'GLS', name:'PrivateDelivery', desc:'Pakke til privat · 1-2 hverdage', cat:'privat',
+    tiers:[{max:1000,p:59.80},{max:5000,p:67.80},{max:10000,p:76.40},{max:15000,p:95.80},{max:20000,p:119.80}]
+  },
+  { carrier:'GLS', name:'Pick&ShipService', desc:'Afhentning hos afsender · 1-2 hverdage', cat:'afhentning',
+    tiers:[{max:1000,p:115.00},{max:5000,p:124.00},{max:10000,p:143.00},{max:15000,p:162.00},{max:20000,p:178.00}]
+  },
+  { carrier:'Bring', name:'Pickup Parcel', desc:'Pakke til udleveringssted · 1-2 hverdage', cat:'pakkeshop',
+    tiers:[{max:1000,p:38.00},{max:5000,p:47.00},{max:10000,p:59.00},{max:15000,p:65.00},{max:20000,p:76.00}]
+  },
+  { carrier:'Bring', name:'Home Delivery Parcel', desc:'Pakke til privat · 1-2 hverdage', cat:'privat',
+    tiers:[{max:1000,p:112.00},{max:5000,p:115.00},{max:10000,p:118.00},{max:15000,p:122.00},{max:20000,p:126.00}]
+  },
+  { carrier:'PostNord', name:'Service Point', desc:'Pakke til udleveringssted · 1-2 hverdage', cat:'pakkeshop',
+    tiers:[{max:1000,p:38.00},{max:2000,p:51.00},{max:5000,p:69.00},{max:10000,p:89.00},{max:15000,p:99.00}]
+  },
+  { carrier:'PostNord', name:'Return', desc:'Retur fra udleveringssted · 1-2 hverdage', cat:'retur',
+    tiers:[{max:1000,p:44.00},{max:2000,p:56.00},{max:5000,p:75.00},{max:10000,p:94.00},{max:15000,p:106.00},{max:20000,p:111.00}]
+  },
+  { carrier:'PostNord', name:'Parcel', desc:'Pakke til erhverv · 1-2 hverdage', cat:'erhverv',
+    tiers:[{max:1000,p:51.00},{max:2000,p:60.00},{max:5000,p:66.00},{max:10000,p:83.00},{max:15000,p:109.00},{max:20000,p:117.00}]
+  },
+  { carrier:'PostNord', name:'Home', desc:'Pakke til privat · 1-2 hverdage', cat:'privat',
+    tiers:[{max:1000,p:59.00},{max:2000,p:67.00},{max:5000,p:80.00},{max:10000,p:103.00},{max:15000,p:119.00},{max:20000,p:129.00}]
+  },
+];
+
+function getStaticPrice(product, weightG){
+  const tier = product.tiers.find(t => weightG <= t.max);
+  return tier ? tier.p : null;
+}
+
+function fmtKr(n){ return n==null?'—':n.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.'; }
+
+function calcBedstePris(){
+  const wEl=document.getElementById('calc-weight');
+  const resEl=document.getElementById('calc-result');
+  const w=parseInt(wEl?.value||0);
+  if(!w||w<1){ resEl.innerHTML=''; return; }
+  if(w>20000){ resEl.innerHTML='<div style="color:var(--red);font-size:12px">Over 20 kg er ikke understøttet i beregner</div>'; return; }
+
+  const cats = ['pakkeshop','privat','erhverv','retur','afhentning'];
+  const catLabels = {pakkeshop:'Pakkeshop',privat:'Til privat',erhverv:'Til erhverv',retur:'Retur',afhentning:'Afhentning'};
+  const catColors = {pakkeshop:'var(--blue)',privat:'var(--green)',erhverv:'var(--amber)',retur:'var(--ink-3)',afhentning:'var(--ink-2)'};
+
+  const rows = cats.map(cat=>{
+    const options = STATIC_PRICES.filter(p=>p.cat===cat).map(p=>({...p,price:getStaticPrice(p,w)})).filter(p=>p.price!=null).sort((a,b)=>a.price-b.price);
+    if(!options.length) return '';
+    const cheapest=options[0];
+    const others=options.slice(1,3);
+    return `<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:0 0 90px;font-size:11px;font-weight:700;color:${catColors[cat]||'var(--ink-2)'};text-transform:uppercase;letter-spacing:.04em;padding-top:2px">${catLabels[cat]}</div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:15px">${fmtKr(cheapest.price)}</span>
+          <span class="badge badge-green" style="font-size:10px">Billigst</span>
+          <span style="font-size:12px;color:var(--ink-2)">${cheapest.carrier} · ${cheapest.name}</span>
+        </div>
+        ${others.length?`<div style="margin-top:4px;display:flex;gap:16px;flex-wrap:wrap">
+          ${others.map(o=>`<span style="font-size:11px;color:var(--ink-3)">${fmtKr(o.price)} ${o.carrier} ${o.name}</span>`).join('')}
+        </div>`:''}
+      </div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  resEl.innerHTML=`<div style="border-top:1px solid var(--border)">${rows}</div>`;
+}
+
+function renderStaticCarrierCards(){
+  const el=document.getElementById('static-carrier-cards'); if(!el) return;
+  const carriers=['DAO','GLS','Bring','PostNord'];
+  const icons={DAO:'🟡',GLS:'🟠',Bring:'🟣',PostNord:'🔵'};
+  el.innerHTML=carriers.map(carrier=>{
+    const prods=STATIC_PRICES.filter(p=>p.carrier===carrier);
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <span class="card-title">${icons[carrier]||'🚚'} ${carrier}</span>
+        <span style="font-size:11px;color:var(--ink-3)">${prods.length} produkter</span>
+      </div>
+      <div style="padding:0 18px 14px">
+        ${prods.map(prod=>{
+          const tierLabels=prod.tiers.map(t=>{
+            const label=t.max>=1000?`${t.max/1000} kg`:`${t.max} g`;
+            return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+              <span style="color:var(--ink-3)">0–${label}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-weight:600">${fmtKr(t.p)}</span>
+            </div>`;
+          }).join('');
+          return `<div style="margin-top:14px">
+            <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px">${prod.name}</div>
+            <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">${prod.desc}</div>
+            <div style="max-width:320px">${tierLabels}</div>
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   }).join('');
