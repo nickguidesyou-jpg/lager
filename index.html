@@ -1197,12 +1197,25 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   <div class="login-box">
     <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" alt="SESU logo" class="login-logo">
     <div class="login-title">Lagersystem</div>
-    <div class="login-sub">SESU bordben — intern adgang</div>
-    <div class="login-input-wrap">
-      <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
+
+    <!-- Trin 1: Adgangskode -->
+    <div id="login-step-pw">
+      <div class="login-sub">SESU bordben — intern adgang</div>
+      <div class="login-input-wrap">
+        <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
+      </div>
+      <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
     </div>
-    <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
+
+    <!-- Trin 2: TOTP -->
+    <div id="login-step-totp" style="display:none">
+      <div class="login-sub" style="margin-bottom:18px">Indtast koden fra Google Authenticator</div>
+      <input type="text" id="totp-input" class="login-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" autocomplete="one-time-code" style="letter-spacing:.25em;text-align:center;font-size:22px" onkeydown="if(event.key==='Enter')doVerifyTOTP()" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')">
+      <button class="login-btn" onclick="doVerifyTOTP()" style="margin-top:12px">Bekræft</button>
+      <button onclick="backToPassword()" style="background:none;border:none;color:rgba(255,255,255,.35);font-size:12px;cursor:pointer;margin-top:10px;display:block;width:100%;text-align:center">← Tilbage til adgangskode</button>
+    </div>
+
     <div class="login-err" id="login-err"></div>
   </div>
 </div>
@@ -1275,7 +1288,10 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:4px">Shipmondo balance</div>
         <div id="ship-balance" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:rgba(255,255,255,.6)">—</div>
       </div>
-      <button onclick="doLogout()" style="margin-top:12px;width:100%;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 12px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .15s;text-align:left" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'">⎋ Log ud</button>
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button onclick="open2FAModal()" style="flex:1;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 10px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:center" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'" title="Opsæt to-faktor godkendelse">🔐 2FA</button>
+        <button onclick="doLogout()" style="flex:2;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 12px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'">⎋ Log ud</button>
+      </div>
     </div>
   </aside>
 
@@ -3254,10 +3270,26 @@ function renderPriser(products){
 
 // ── LOGIN ──
 let loginAttempts = 0;
+let _loginHash = ''; // Midlertidigt mellem trin 1 og 2
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function completeLogin(token) {
+  _loginHash = '';
+  sessionStorage.setItem('lager_auth', '1');
+  sessionStorage.setItem('lager_token', token);
+  const screen = document.getElementById('login-screen');
+  screen.classList.add('hidden');
+  setTimeout(() => screen.style.display = 'none', 320);
+  loginAttempts = 0;
+  document.getElementById('login-err').textContent = '';
+  resetInactivityTimer();
+  loadAll().then(()=>checkNotifications());
+  loadBalance(); loadMonthlyStats(); loadMonthlyHistory();
+  loadTemplates(); loadLeverandoerer();
 }
 
 async function doLogin() {
@@ -3268,30 +3300,151 @@ async function doLogin() {
   try {
     const res = await jsonpShip({ action:'verifyLogin', hash });
     if (res && res.token) {
-      sessionStorage.setItem('lager_auth', '1');
-      sessionStorage.setItem('lager_token', res.token);
-      const screen = document.getElementById('login-screen');
-      screen.classList.add('hidden');
-      setTimeout(() => screen.style.display = 'none', 320);
-      loginAttempts = 0;
+      completeLogin(res.token);
+    } else if (res && res.step2) {
+      _loginHash = hash;
+      document.getElementById('login-step-pw').style.display = 'none';
+      document.getElementById('login-step-totp').style.display = 'block';
+      document.getElementById('totp-input').value = '';
+      document.getElementById('totp-input').focus();
       err.textContent = '';
-      loadAll().then(()=>checkNotifications());
-      loadBalance();
-      loadMonthlyStats();
-      loadMonthlyHistory();
-      loadTemplates();
-      loadLeverandoerer();
     } else {
       loginAttempts++;
-      err.textContent = 'Forkert kode — prøv igen';
-      inp.value = '';
-      inp.focus();
-      setTimeout(() => err.textContent = '', 2500);
+      err.textContent = res?.error || 'Forkert kode — prøv igen';
+      inp.value = ''; inp.focus();
+      setTimeout(() => err.textContent = '', 3000);
     }
   } catch(e) {
     err.textContent = 'Serverfejl — prøv igen';
-    setTimeout(() => err.textContent = '', 2500);
+    setTimeout(() => err.textContent = '', 3000);
   }
+}
+
+async function doVerifyTOTP() {
+  const code = document.getElementById('totp-input').value.replace(/\s/g,'');
+  const err  = document.getElementById('login-err');
+  if(code.length < 6){ err.textContent = 'Koden skal være 6 cifre'; return; }
+  err.textContent = 'Verificerer…';
+  try {
+    const res = await jsonpShip({ action:'verifyStep2', hash: _loginHash, code });
+    if(res && res.token){
+      completeLogin(res.token);
+    } else {
+      err.textContent = res?.error || 'Forkert kode';
+      document.getElementById('totp-input').value = '';
+      document.getElementById('totp-input').focus();
+      setTimeout(() => err.textContent = '', 3500);
+    }
+  } catch(e) {
+    err.textContent = 'Serverfejl — prøv igen';
+    setTimeout(() => err.textContent = '', 3000);
+  }
+}
+
+function backToPassword() {
+  _loginHash = '';
+  document.getElementById('login-step-totp').style.display = 'none';
+  document.getElementById('login-step-pw').style.display = 'block';
+  document.getElementById('login-input').value = '';
+  document.getElementById('login-input').focus();
+  document.getElementById('login-err').textContent = '';
+}
+
+// ── 2FA OPSÆTNING ──
+async function open2FAModal() {
+  const hash = sessionStorage.getItem('_2fa_hash') || '';
+  document.getElementById('modal-box').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">To-faktor godkendelse</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="tfa-body">
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:16px">Bekræft din adgangskode for at fortsætte:</div>
+      <div class="fg"><label>Adgangskode</label><input id="tfa-pw" type="password" placeholder="Din adgangskode" autofocus></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="tfa2Step1()">Fortsæt</button>
+    </div>`;
+  openModal();
+}
+
+async function tfa2Step1() {
+  const pw = document.getElementById('tfa-pw')?.value;
+  if(!pw){ toast('Angiv adgangskode'); return; }
+  const hash = await sha256(pw);
+  const body = document.getElementById('tfa-body'); if(!body) return;
+  body.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:var(--ink-3)">Henter status…</div>';
+  try {
+    // Check if 2FA is active by trying setupTOTP (will error if already active)
+    const res = await jsonpShip({ action:'setupTOTP', hash });
+    if(res.error === '2FA er allerede aktiveret'){
+      // Show disable form
+      body.innerHTML = `
+        <div style="background:rgba(30,160,90,.08);border:1px solid rgba(30,160,90,.2);border-radius:8px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:4px">✓ To-faktor godkendelse er aktiv</div>
+          <div style="font-size:12px;color:var(--ink-2)">Login kræver Google Authenticator-kode.</div>
+        </div>
+        <div class="fg"><label>Deaktiver — indtast Google Authenticator-kode</label>
+          <input id="tfa-disable-code" type="text" inputmode="numeric" maxlength="7" placeholder="000 000" style="letter-spacing:.2em;font-size:16px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')"></div>
+        <div class="modal-foot" style="padding:0;border:none;margin-top:16px">
+          <button class="btn" onclick="closeModal()">Annuller</button>
+          <button class="btn btn-danger" onclick="tfa2Disable('${hash}')">Deaktiver 2FA</button>
+        </div>`;
+    } else if(res.secret) {
+      // Show setup
+      const sec = res.secret;
+      const secFmt = sec.match(/.{1,4}/g).join(' ');
+      const otpauth = 'otpauth://totp/SESU%20Lager?secret=' + sec + '&issuer=SESU';
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(otpauth);
+      body.innerHTML = `
+        <div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">Scan QR-koden med <strong>Google Authenticator</strong>, eller indtast nøglen manuelt:</div>
+        <div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">
+          <img src="${qrUrl}" style="width:150px;height:150px;border-radius:8px;border:1px solid var(--border)" onerror="this.style.display='none'">
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Opsætningsnøgle</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:10px 12px;border-radius:6px;letter-spacing:.12em;line-height:1.8;word-break:break-all">${secFmt}</div>
+            <div style="font-size:11px;color:var(--ink-3);margin-top:8px">Tryk "+" i Google Authenticator → "Skriv opsætningsnøgle"<br>Kontonavn: <strong>SESU Lager</strong></div>
+          </div>
+        </div>
+        <div class="fg"><label>Bekræft — indtast den 6-cifrede kode fra appen</label>
+          <input id="tfa-confirm-code" type="text" inputmode="numeric" maxlength="7" placeholder="000 000" autofocus style="letter-spacing:.2em;font-size:16px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" onkeydown="if(event.key==='Enter')tfa2Confirm('${hash}')"></div>
+        <div class="modal-foot" style="padding:0;border:none;margin-top:16px">
+          <button class="btn" onclick="closeModal()">Annuller</button>
+          <button class="btn btn-primary" onclick="tfa2Confirm('${hash}')">Aktiver 2FA</button>
+        </div>`;
+    } else {
+      body.innerHTML = `<div style="padding:16px;color:var(--red)">${esc(res.error||'Ukendt fejl')}</div>`;
+    }
+  } catch(e) { body.innerHTML = `<div style="padding:16px;color:var(--red)">Fejl: ${esc(e.message)}</div>`; }
+}
+
+async function tfa2Confirm(hash) {
+  const code = document.getElementById('tfa-confirm-code')?.value.replace(/\s/g,'');
+  if(!code||code.length<6){ toast('Indtast koden fra Google Authenticator'); return; }
+  try {
+    const res = await jsonpShip({ action:'confirmTOTPSetup', hash, code });
+    if(res.ok){
+      closeModal();
+      toast('✓ To-faktor godkendelse er nu aktiveret');
+    } else {
+      toast(res.error||'Forkert kode — prøv igen fra start');
+    }
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
+async function tfa2Disable(hash) {
+  const code = document.getElementById('tfa-disable-code')?.value.replace(/\s/g,'');
+  if(!code||code.length<6){ toast('Indtast koden fra Google Authenticator'); return; }
+  try {
+    const res = await jsonpShip({ action:'disableTOTP', hash, code });
+    if(res.ok){
+      closeModal();
+      toast('To-faktor godkendelse er deaktiveret');
+    } else {
+      toast(res.error||'Forkert kode');
+    }
+  } catch(e){ toast('Fejl: '+e.message); }
 }
 
 // ── CMD+K GLOBAL SØGNING ──
