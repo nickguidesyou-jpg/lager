@@ -1310,7 +1310,8 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:4px">Shipmondo balance</div>
         <div id="ship-balance" style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:rgba(255,255,255,.6)">—</div>
       </div>
-      <div style="display:flex;gap:6px;margin-top:12px">
+      <div id="last-login-label" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.25);line-height:1.4"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
         <button onclick="open2FAModal()" style="flex:1;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 10px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:center" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'" title="Opsæt to-faktor godkendelse">🔐 2FA</button>
         <button onclick="doLogout()" style="flex:2;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 12px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'">⎋ Log ud</button>
       </div>
@@ -1847,6 +1848,19 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       </div>
     </div>
   </main>
+</div>
+
+<!-- SKÆRMLÅS -->
+<div id="screen-lock" style="display:none;position:fixed;inset:0;background:rgba(15,15,20,.92);backdrop-filter:blur(12px);z-index:99999;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+  <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" style="width:56px;height:56px;border-radius:50%;opacity:.7">
+  <div style="color:#fff;font-size:18px;font-weight:600">Systemet er låst</div>
+  <div style="color:rgba(255,255,255,.5);font-size:13px">Indtast din adgangskode for at fortsætte</div>
+  <input id="lock-input" type="password" placeholder="Adgangskode…" autocomplete="current-password"
+    style="width:260px;padding:12px 16px;border-radius:8px;border:none;font-size:15px;font-family:inherit;background:rgba(255,255,255,.1);color:#fff;outline:2px solid rgba(255,255,255,.2);text-align:center"
+    onkeydown="if(event.key==='Enter')doUnlock()">
+  <button onclick="doUnlock()" style="padding:10px 32px;background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Lås op</button>
+  <div id="lock-err" style="color:#f28b82;font-size:12px;min-height:18px"></div>
+  <button onclick="doLogout()" style="margin-top:8px;background:none;border:none;color:rgba(255,255,255,.35);font-size:12px;cursor:pointer;text-decoration:underline">Log helt ud</button>
 </div>
 
 <!-- FORBRUGSGRAF MODAL -->
@@ -3840,8 +3854,63 @@ function renderStaticCarrierCards(){
   }).join('');
 }
 
+// ── SIKKERHED ──
+
+// Console self-XSS advarsel
+console.log('%c⚠ STOP!', 'color:#d93025;font-size:48px;font-weight:900');
+console.log('%cDette er et udviklerværktøj beregnet til programmører.\nHvis nogen har bedt dig indsætte noget her, er det et angreb kaldet "self-XSS".\nIndsæt ALDRIG kode du ikke selv forstår.', 'color:#202124;font-size:14px;line-height:1.6');
+
+// Skærmlås: lås hvis fanen har været skjult i >15 min
+let _hiddenSince = null;
+const LOCK_HIDDEN_MS = 15 * 60 * 1000;
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden){ _hiddenSince = Date.now(); }
+  else {
+    if(_hiddenSince && Date.now()-_hiddenSince > LOCK_HIDDEN_MS && sessionStorage.getItem('lager_auth')==='1'){
+      showScreenLock();
+    }
+    _hiddenSince = null;
+  }
+});
+
+function showScreenLock(){
+  const el=document.getElementById('screen-lock'); if(!el) return;
+  el.style.display='flex';
+  setTimeout(()=>{ const inp=document.getElementById('lock-input'); if(inp){ inp.value=''; inp.focus(); } },100);
+}
+
+async function doUnlock(){
+  const inp=document.getElementById('lock-input');
+  const errEl=document.getElementById('lock-err');
+  const hash=await sha256(inp.value);
+  errEl.textContent='Verificerer…';
+  try {
+    const res=await jsonpShip({action:'verifyLogin',hash});
+    if(res&&(res.token||res.step2)){
+      document.getElementById('screen-lock').style.display='none';
+      inp.value=''; errEl.textContent='';
+      resetInactivityTimer();
+    } else {
+      errEl.textContent='Forkert adgangskode';
+      inp.value=''; inp.focus();
+      setTimeout(()=>errEl.textContent='',3000);
+    }
+  } catch(e){ errEl.textContent='Fejl — prøv igen'; setTimeout(()=>errEl.textContent='',3000); }
+}
+
+// Seneste login
+function recordLogin(){
+  const now=new Date();
+  const str=now.toLocaleDateString('da-DK',{day:'numeric',month:'short',year:'numeric'})+' kl. '+now.toLocaleTimeString('da-DK',{hour:'2-digit',minute:'2-digit'});
+  const prev=localStorage.getItem('lager_last_login')||'';
+  try { localStorage.setItem('lager_last_login', str); } catch(e){}
+  const el=document.getElementById('last-login-label');
+  if(el&&prev) el.textContent='Seneste login: '+prev;
+}
+
 // ── LOGIN ──
 let loginAttempts = 0;
+let _lockoutUntil = 0;
 let _loginHash = ''; // Midlertidigt mellem trin 1 og 2
 
 async function sha256(str) {
@@ -3856,8 +3925,9 @@ function completeLogin(token) {
   const screen = document.getElementById('login-screen');
   screen.classList.add('hidden');
   setTimeout(() => screen.style.display = 'none', 320);
-  loginAttempts = 0;
+  loginAttempts = 0; _lockoutUntil = 0;
   document.getElementById('login-err').textContent = '';
+  recordLogin();
   resetInactivityTimer();
   loadAll().then(()=>checkNotifications());
   loadBalance(); loadMonthlyStats(); loadMonthlyHistory();
@@ -3867,6 +3937,11 @@ function completeLogin(token) {
 async function doLogin() {
   const inp = document.getElementById('login-input');
   const err = document.getElementById('login-err');
+  if(_lockoutUntil && Date.now() < _lockoutUntil){
+    const secs=Math.ceil((_lockoutUntil-Date.now())/1000);
+    err.textContent=`For mange forsøg — prøv igen om ${secs} sekunder`;
+    return;
+  }
   err.textContent = 'Verificerer…';
   const hash = await sha256(inp.value);
   try {
@@ -3882,9 +3957,18 @@ async function doLogin() {
       err.textContent = '';
     } else {
       loginAttempts++;
-      err.textContent = res?.error || 'Forkert kode — prøv igen';
-      inp.value = ''; inp.focus();
-      setTimeout(() => err.textContent = '', 3000);
+      if(loginAttempts >= 5){
+        _lockoutUntil = Date.now() + 5 * 60 * 1000;
+        err.textContent = 'For mange fejlede forsøg — låst i 5 minutter';
+        inp.value = ''; inp.disabled = true;
+        const btn = inp.closest('div')?.querySelector('button') || document.querySelector('.login-btn');
+        if(btn) btn.disabled = true;
+        setTimeout(()=>{ loginAttempts=0; _lockoutUntil=0; inp.disabled=false; if(btn) btn.disabled=false; err.textContent=''; }, 5*60*1000);
+      } else {
+        err.textContent = `Forkert kode — ${5-loginAttempts} forsøg tilbage`;
+        inp.value = ''; inp.focus();
+        setTimeout(() => err.textContent = '', 3000);
+      }
     }
   } catch(e) {
     err.textContent = 'Serverfejl — prøv igen';
@@ -4162,7 +4246,7 @@ localStorage.removeItem('lager_claude_key');
 
 // Auto-unlock if already authenticated this session
 // ── AUTO-LOGOUT ved inaktivitet (8 timer) ──
-const INACTIVITY_MS = 8 * 60 * 60 * 1000;
+const INACTIVITY_MS = 2 * 60 * 60 * 1000;
 let _inactivityTimer = null;
 function resetInactivityTimer(){
   clearTimeout(_inactivityTimer);
@@ -4181,6 +4265,8 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   const screen = document.getElementById('login-screen');
   if (screen) screen.style.display = 'none';
   resetInactivityTimer();
+  const _prev=localStorage.getItem('lager_last_login'); const _lll=document.getElementById('last-login-label');
+  if(_lll&&_prev) _lll.textContent='Seneste login: '+_prev;
   // Gendan aktiv fane fra URL-hash eller localStorage
   window.addEventListener('DOMContentLoaded', () => {
     const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer','salgsordrer']);
