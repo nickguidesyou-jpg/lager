@@ -1921,7 +1921,16 @@ async function loadShipments(){
       jsonpShip({ action:'getShipments', page:shipPage, q }),
       jsonp({ action:'getPackageContents' }).catch(()=>null)
     ]);
-    if(pkgData && !pkgData.error) shipPackageContents = pkgData;
+    if(pkgData && !pkgData.error) {
+      shipPackageContents = pkgData;
+      // Merge localStorage statuses — fills gaps where backend has empty string
+      Object.keys(shipPackageContents).forEach(sid => {
+        if(!shipPackageContents[sid].status) {
+          const local = localStorage.getItem('ship_status_'+sid);
+          if(local) { shipPackageContents[sid].status = local; jsonp({action:'saveShipmentStatus',shipment_id:sid,status:local}).catch(()=>{}); }
+        }
+      });
+    }
     shipLoaded = true;
     if(loadEl) loadEl.style.display='none';
     if(d.error) throw new Error(d.error);
@@ -2049,7 +2058,10 @@ function renderShipments(ships){
     return `<tr>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(s.id||'—')}</td>
       <td><div class="td-name">${esc(name)}</div><div class="td-sub">${esc(addr)}</div></td>
-      <td style="font-size:12px">${esc(s.product_code||'—')}</td>
+      <td style="font-size:11px;line-height:1.4">${pkgItems.length
+        ? pkgItems.map(e=>{ const it=items.find(i=>i.id===e.id); return it ? `<div>${esc(it.name)}${e.qty>1?' ×'+e.qty:''}</div>` : ''; }).join('')
+        : `<span style="color:var(--ink-3);font-size:12px">${esc(s.product_code||'—')}</span>`
+      }</td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(s.reference||'—')}</td>
       <td style="${stateClass==='delivered'?'background:#E2F0E2;border-radius:6px;':''}">
         <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:${trackColor};font-weight:${stateClass==='created'?'400':'600'}">${esc(tracking)}</div>
@@ -2078,6 +2090,8 @@ function setShipStatus(shipId, status){
   if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
   shipPackageContents[sid].status = stored;
   renderShipments(allShips);
+  const lbl = {created:'Oprettet',in_transit:'Under transport',delivered:'Leveret',returned:'Returneret'}[stored]||stored;
+  toast('Status: '+lbl);
 
   // Sync to Sheets in background
   jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored }).catch(()=>{});
