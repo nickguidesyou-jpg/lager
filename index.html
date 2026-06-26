@@ -1409,38 +1409,42 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 
       <!-- OVERSIGT -->
       <div id="tab-oversigt" class="view active">
-        <div class="stats-grid" id="stats-grid"></div>
-        <div class="stats-grid" id="pkg-stats-grid" style="margin-bottom:20px"></div>
-        <div id="ov-alerts" style="margin-bottom:20px"></div>
-        <div class="card" style="margin-bottom:20px">
-          <div class="card-header">
-            <span class="card-title">Forsendelser — sidste 6 måneder</span>
-            <span id="chart-loading" style="font-size:11px;color:var(--ink-3)">Henter…</span>
-          </div>
-          <div class="chart-wrap"><canvas id="ship-chart"></canvas></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title" style="color:var(--red)">Udsolgt</span>
-              <span id="low-count-out" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start;margin-bottom:0">
+          <div>
+            <div class="stats-grid" id="stats-grid"></div>
+            <div class="stats-grid" id="pkg-stats-grid" style="margin-bottom:20px"></div>
+            <div id="ov-alerts" style="margin-bottom:20px"></div>
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-header">
+                <span class="card-title">Forsendelser — sidste 6 måneder</span>
+                <span id="chart-loading" style="font-size:11px;color:var(--ink-3)">Henter…</span>
+              </div>
+              <div class="chart-wrap"><canvas id="ship-chart"></canvas></div>
             </div>
-            <div id="ov-low-out"></div>
-          </div>
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Lav beholdning</span>
-              <span id="low-count-low" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-title" style="color:var(--red)">Udsolgt</span>
+                  <span id="low-count-out" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+                </div>
+                <div id="ov-low-out"></div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-title">Lav beholdning</span>
+                  <span id="low-count-low" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+                </div>
+                <div id="ov-low-low"></div>
+              </div>
             </div>
-            <div id="ov-low-low"></div>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Top 10 mest solgte</span>
-            <span id="top10-periode" style="font-size:11px;color:var(--ink-3)"></span>
+          <div class="card" style="position:sticky;top:20px">
+            <div class="card-header">
+              <span class="card-title">Top 10 mest solgte</span>
+              <span id="top10-periode" style="font-size:11px;color:var(--ink-3)"></span>
+            </div>
+            <div id="top10-body"></div>
           </div>
-          <div id="top10-body"></div>
         </div>
       </div>
 
