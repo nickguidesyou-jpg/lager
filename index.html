@@ -348,6 +348,7 @@ body {
 .stat-card.green::before { background: var(--green); }
 .stat-card.blue::before { background: var(--blue); }
 .stat-card.red::before { background: var(--red); }
+.stat-card.yellow::before { background: #C49A28; }
 .stat-label {
   font-size: 10px;
   font-weight: 500;
@@ -2000,7 +2001,7 @@ function renderShipments(ships){
   const transitValueStr = transitValue > 0 ? transitValue.toLocaleString('da-DK')+' kr.' : '—';
   document.getElementById('ship-stats').innerHTML = `
     <div class="stat-card blue"><div class="stat-label">Forsendelser</div><div class="stat-value">${String(total).padStart(2,'0')}</div><div class="stat-detail">denne side</div></div>
-    <div class="stat-card"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--ink-2)">${transitValueStr}</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Under transport<div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--ink-2)">${transitValueStr}</div></div>
     <div class="stat-card green"><div class="stat-label">Leveret</div><div class="stat-value">${String(delivered).padStart(2,'0')}</div><div class="stat-detail">afsluttede</div></div>`;
 
   if(!filtered.length){ if(empty) empty.style.display=''; return; }
