@@ -2058,8 +2058,8 @@ function renderShipments(ships){
     return `<tr>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(s.id||'—')}</td>
       <td><div class="td-name">${esc(name)}</div><div class="td-sub">${esc(addr)}</div></td>
-      <td style="font-size:11px;line-height:1.4">${pkgItems.length
-        ? pkgItems.map(e=>{ const it=items.find(i=>i.id===e.id); return it ? `<div>${esc(it.name)}${e.qty>1?' ×'+e.qty:''}</div>` : ''; }).join('')
+      <td style="font-size:11px;line-height:1.6">${pkgItems.length
+        ? pkgItems.map(e=>{ const it=items.find(i=>i.id===e.id); return it ? `<div><span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--ink-2);margin-right:4px">${e.qty}×</span>${esc(it.name)}</div>` : ''; }).join('')
         : `<span style="color:var(--ink-3);font-size:12px">${esc(s.product_code||'—')}</span>`
       }</td>
       <td style="font-size:12px;color:var(--ink-3)">${esc(s.reference||'—')}</td>
