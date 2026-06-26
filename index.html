@@ -1194,6 +1194,18 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   .card { box-shadow:none !important; border:1px solid #ddd !important; break-inside:avoid; }
   .table-wrap { overflow:visible !important; }
   @page { margin: 1.5cm; }
+  /* Label print: vis kun label-gridden */
+  #label-modal-overlay { position:static !important; background:none !important; display:block !important; }
+  #label-modal-overlay > div { box-shadow:none !important; border-radius:0 !important; width:100% !important; }
+  #label-modal-overlay > div > div:first-child,
+  #label-modal-overlay > div > div:nth-child(2) { display:none !important; }
+  #label-preview { max-height:none !important; overflow:visible !important; }
+  .label-grid { grid-template-columns:repeat(3,1fr) !important; gap:6px !important; }
+  .label-card { break-inside:avoid !important; border:1px solid #999 !important; }
+  /* Plukliste print */
+  #pick-modal-overlay { position:static !important; background:none !important; display:block !important; }
+  #pick-modal-overlay > div { box-shadow:none !important; border-radius:0 !important; width:100% !important; }
+  #pick-modal-overlay > div > div:first-child { display:none !important; }
 }
 </style>
 </head>
@@ -1278,6 +1290,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
       <button class="nav-item" onclick="showTab('indkoebsordrer')" id="nav-indkoebsordrer">
         <span class="nav-icon">📋</span> Indkøbsordrer
       </button>
+      <button class="nav-item" onclick="showTab('salgsordrer')" id="nav-salgsordrer">
+        <span class="nav-icon">🛍</span> Salgsordrer
+      </button>
       <button class="nav-item" onclick="showTab('rapporter')" id="nav-rapporter">
         <span class="nav-icon">📊</span> Rapporter
       </button>
@@ -1349,6 +1364,10 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <span class="mnav-icon">📋</span>
         <span>IO</span>
       </button>
+      <button class="mobile-nav-item" id="mnav-salgsordrer" onclick="showTab('salgsordrer')" aria-label="Salgsordrer">
+        <span class="mnav-icon">🛍</span>
+        <span>Salg</span>
+      </button>
       <button class="mobile-nav-item" id="mnav-rapporter" onclick="showTab('rapporter')" aria-label="Rapporter">
         <span class="mnav-icon">📊</span>
         <span>Rapporter</span>
@@ -1377,7 +1396,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <button class="btn btn-ghost btn-sm notif-btn" id="notif-bell" onclick="openNotifModal()" title="Notifikationer og lav-beholdning-advarsler">🔔<span class="notif-badge" id="notif-badge" style="display:none">0</span></button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
-        <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste">↓ CSV</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste som CSV">↓ CSV</button>
+        <label class="btn btn-ghost btn-sm" title="Importer varer fra CSV-fil" style="cursor:pointer;margin:0">↑ Import<input type="file" accept=".csv" onchange="importCSV(this)" style="display:none"></label>
+        <button class="btn btn-ghost btn-sm" onclick="openLabelModal()" title="Print hyldeetiketter">🏷 Labels</button>
         <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
         <button class="btn btn-primary" onclick="openItemModal(null,null)">+ Tilføj vare</button>
       </div>
@@ -1736,6 +1757,35 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         </div>
       </div>
 
+      <!-- SALGSORDRER -->
+      <div id="tab-salgsordrer" class="view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:13px;color:var(--ink-3)">Udgående ordrer fra oprettelse til afsendelse</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="renderSO()">⟳ Opdater</button>
+            <button class="btn btn-primary btn-sm" onclick="openSOModal(null)">+ Ny salgsordre</button>
+          </div>
+        </div>
+        <div id="so-stats" class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"></div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th style="width:13%">Reference</th>
+                <th>Kunde</th>
+                <th style="width:13%">Dato</th>
+                <th style="width:10%">Linjer</th>
+                <th style="width:10%">Status</th>
+                <th style="width:16%"></th>
+              </tr></thead>
+              <tbody id="so-tbody">
+                <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- FRAGTPRISER -->
       <div id="tab-priser" class="view" style="display:none">
         <!-- PRISBEREGNER -->
@@ -1769,6 +1819,85 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   </main>
 </div>
 
+<!-- SALGSORDRE MODAL -->
+<div id="so-modal-overlay" onclick="if(event.target===this)closeSOModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:8000;align-items:flex-start;justify-content:center;padding-top:48px;overflow-y:auto">
+  <div style="width:min(680px,96vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);margin-bottom:48px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600;font-size:15px" id="so-modal-title">Ny salgsordre</div>
+      <button onclick="closeSOModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-3);line-height:1">×</button>
+    </div>
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+      <input type="hidden" id="so-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Kundenavn</label>
+          <input id="so-customer" type="text" placeholder="Navn eller firma" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Dato</label>
+          <input id="so-date" type="date" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Status</label>
+        <select id="so-status" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+          <option value="ny">Ny</option>
+          <option value="pluk">Under pluk</option>
+          <option value="pakket">Pakket</option>
+          <option value="afsendt">Afsendt</option>
+        </select>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Note</label>
+        <textarea id="so-note" rows="2" placeholder="Leveringsadresse, særlige ønsker…" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <label style="font-size:12px;font-weight:600;color:var(--ink-2)">Varelinjer</label>
+          <button class="btn btn-ghost btn-sm" onclick="addSOLine()">+ Tilføj linje</button>
+        </div>
+        <div id="so-lines" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 22px;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" onclick="closeSOModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="saveSOModal()">Gem ordre</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLUKLISTE MODAL -->
+<div id="pick-modal-overlay" onclick="if(event.target===this)closePickModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:8500;align-items:flex-start;justify-content:center;padding-top:48px;overflow-y:auto">
+  <div style="width:min(640px,96vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);margin-bottom:48px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600;font-size:15px" id="pick-modal-title">Plukliste</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print</button>
+        <button onclick="closePickModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-3);line-height:1">×</button>
+      </div>
+    </div>
+    <div id="pick-modal-body" style="padding:20px 22px"></div>
+  </div>
+</div>
+
+<!-- LABEL MODAL -->
+<div id="label-modal-overlay" onclick="if(event.target===this)closeLabelModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:8500;align-items:flex-start;justify-content:center;padding-top:48px;overflow-y:auto">
+  <div style="width:min(680px,96vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);margin-bottom:48px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600;font-size:15px">Hyldeetiketter</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print</button>
+        <button onclick="closeLabelModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-3);line-height:1">×</button>
+      </div>
+    </div>
+    <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:600;color:var(--ink-2)">Filtrer:</label>
+      <select id="label-cat-filter" onchange="renderLabelPreview()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+        <option value="">Alle kategorier</option>
+      </select>
+      <select id="label-room-filter" onchange="renderLabelPreview()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+        <option value="">Alle rum</option>
+      </select>
+      <span id="label-count" style="font-size:12px;color:var(--ink-3);margin-left:auto"></span>
+    </div>
+    <div id="label-preview" style="padding:20px 22px;max-height:60vh;overflow-y:auto"></div>
+  </div>
+</div>
+
 <!-- MODAL -->
 <div id="cmdk-overlay" onclick="if(event.target===this)closeCmdk()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:flex-start;justify-content:center;padding-top:72px">
   <div style="width:min(540px,92vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);overflow:hidden">
@@ -1794,7 +1923,7 @@ const API = 'https://script.google.com/macros/s/AKfycbwdbhEo-na7UVPQ4raRAz22NhVx
 let CATS = JSON.parse(localStorage.getItem('lager_cats')||'null') || ['Bordben','Beslag','Hyldeplader','Skruer & bolte','Møbelben','Hjul & gliders','Andet'];
 const BADGE_POOL = ['badge-blue','badge-green','badge-amber','badge-gray','badge-blue','badge-green','badge-amber'];
 function getBadgeClass(cat){ const i=CATS.indexOf(cat); return i>=0?BADGE_POOL[i%BADGE_POOL.length]:'badge-gray'; }
-const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling', modtagelse:'Varemodtagelse', leverandoerer:'Leverandører', rapporter:'Rapporter', indkoebsordrer:'Indkøbsordrer' };
+const TITLES = { oversigt:'Oversigt', varer:'Alle varer', rum:'Rum & zoner', forsendelser:'Forsendelser', priser:'Fragtpriser', indkob:'Indkøbsliste', historik:'Historik', optaelling:'Lageroptælling', modtagelse:'Varemodtagelse', leverandoerer:'Leverandører', rapporter:'Rapporter', indkoebsordrer:'Indkøbsordrer', salgsordrer:'Salgsordrer' };
 
 let items=[], rooms=[], selRoom=null, activeCat='Alle';
 let allTemplates=[], templatesLoaded=false;
@@ -2737,9 +2866,9 @@ async function delRoom(id){
 }
 
 function showTab(t){
-  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer']);
+  const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer','salgsordrer']);
   if(!VALID.has(t)) t = 'oversigt';
-  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer'].forEach(n=>{
+  ['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer','salgsordrer'].forEach(n=>{
     const el = document.getElementById('tab-'+n);
     if(el) el.style.display = n===t ? 'block' : 'none';
     const nav = document.getElementById('nav-'+n);
@@ -2763,6 +2892,7 @@ function showTab(t){
   if(t === 'leverandoerer') renderLeverandoerer();
   if(t === 'rapporter') renderRapporter(false);
   if(t === 'indkoebsordrer') { if(!poLoaded) loadIndkoebsordrer(); else renderIndkoebsordrer(); }
+  if(t === 'salgsordrer') renderSO();
   if(t === 'indkob') priceReady.then(()=>renderIndkob());
   if(t === 'historik' && !histLoaded) loadHistorik();
 }
@@ -3819,7 +3949,7 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   resetInactivityTimer();
   // Gendan aktiv fane fra URL-hash eller localStorage
   window.addEventListener('DOMContentLoaded', () => {
-    const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter']);
+    const VALID = new Set(['oversigt','varer','rum','forsendelser','priser','indkob','historik','optaelling','modtagelse','leverandoerer','rapporter','indkoebsordrer','salgsordrer']);
     const fromHash = location.hash.replace('#','');
     const saved = VALID.has(fromHash) ? fromHash : (localStorage.getItem('activeTab') || 'oversigt');
     if(saved !== 'oversigt') showTab(saved);
@@ -6472,6 +6602,250 @@ function renderAIMessages(){
 function scrollAI(){
   const el = document.getElementById('ai-messages');
   el.scrollTop = el.scrollHeight;
+}
+
+// ── SALGSORDRER ──
+let allSO = [];
+const SO_KEY = 'lager_so';
+
+function loadSO(){ try{ allSO=JSON.parse(localStorage.getItem(SO_KEY)||'[]'); }catch(e){ allSO=[]; } }
+function saveSO(){ localStorage.setItem(SO_KEY, JSON.stringify(allSO)); }
+function genSOId(){ const d=new Date(); return 'SO-'+d.getFullYear()+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')+'-'+(allSO.length+1+'').padStart(3,'0'); }
+
+function renderSO(){
+  loadSO();
+  const ny=allSO.filter(s=>s.status==='ny').length;
+  const pluk=allSO.filter(s=>s.status==='pluk').length;
+  const pakket=allSO.filter(s=>s.status==='pakket').length;
+  const afsendt=allSO.filter(s=>s.status==='afsendt').length;
+  const statsEl=document.getElementById('so-stats');
+  if(statsEl) statsEl.innerHTML=`
+    <div class="stat-card"><div class="stat-label">Nye</div><div class="stat-value">${ny}</div></div>
+    <div class="stat-card"><div class="stat-label">Under pluk</div><div class="stat-value">${pluk}</div></div>
+    <div class="stat-card"><div class="stat-label">Pakket</div><div class="stat-value">${pakket}</div></div>
+    <div class="stat-card"><div class="stat-label">Afsendt</div><div class="stat-value">${afsendt}</div></div>`;
+  const tbody=document.getElementById('so-tbody'); if(!tbody) return;
+  if(!allSO.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu — opret din første med + knappen</td></tr>'; return; }
+  const statusBadge={ny:'badge-blue',pluk:'badge-amber',pakket:'badge-green',afsendt:'badge-gray'};
+  const statusLabel={ny:'Ny',pluk:'Under pluk',pakket:'Pakket',afsendt:'Afsendt'};
+  tbody.innerHTML=[...allSO].reverse().map(so=>`<tr>
+    <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600">${esc(so.id)}</span></td>
+    <td><div class="td-name">${esc(so.customer||'—')}</div>${so.note?`<div class="td-sub">${esc(so.note.slice(0,50))}</div>`:''}</td>
+    <td style="font-size:12px;color:var(--ink-2)">${so.date||'—'}</td>
+    <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${so.lines?.length||0}</td>
+    <td><span class="badge ${statusBadge[so.status]||'badge-gray'}">${statusLabel[so.status]||so.status}</span></td>
+    <td style="text-align:right">
+      <button class="btn btn-ghost btn-sm" onclick="openPickList('${so.id}')">📋 Plukliste</button>
+      <button class="btn btn-ghost btn-sm" onclick="openSOModal('${so.id}')">Rediger</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteSO('${so.id}')">Slet</button>
+    </td>
+  </tr>`).join('');
+}
+
+function openSOModal(id){
+  loadSO();
+  const so=id?allSO.find(s=>s.id===id):null;
+  document.getElementById('so-modal-title').textContent=so?'Rediger salgsordre':'Ny salgsordre';
+  document.getElementById('so-id').value=so?.id||'';
+  document.getElementById('so-customer').value=so?.customer||'';
+  document.getElementById('so-date').value=so?.date||new Date().toISOString().slice(0,10);
+  document.getElementById('so-status').value=so?.status||'ny';
+  document.getElementById('so-note').value=so?.note||'';
+  const linesEl=document.getElementById('so-lines');
+  linesEl.innerHTML='';
+  (so?.lines||[]).forEach(l=>appendSOLine(l.itemId,l.name,l.qty));
+  if(!so?.lines?.length) appendSOLine('','',1);
+  const ov=document.getElementById('so-modal-overlay'); ov.style.display='flex';
+}
+function closeSOModal(){ document.getElementById('so-modal-overlay').style.display='none'; }
+
+function appendSOLine(itemId='',name='',qty=1){
+  const linesEl=document.getElementById('so-lines');
+  const row=document.createElement('div');
+  row.style.cssText='display:grid;grid-template-columns:1fr 80px 32px;gap:6px;align-items:center';
+  const opts=items.map(i=>`<option value="${i.id}" ${i.id===itemId?'selected':''}>${esc(i.name)}${i.sku?' ('+i.sku+')':''}</option>`).join('');
+  row.innerHTML=`<select style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit"><option value="">— Vælg vare —</option>${opts}</select>
+    <input type="number" min="1" value="${qty}" style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--ink-3);line-height:1">×</button>`;
+  linesEl.appendChild(row);
+}
+function addSOLine(){ appendSOLine('','',1); }
+
+function saveSOModal(){
+  const id=document.getElementById('so-id').value;
+  const customer=document.getElementById('so-customer').value.trim();
+  if(!customer){ toast('Udfyld kundenavn'); return; }
+  const lines=[...document.getElementById('so-lines').querySelectorAll('div')].map(row=>{
+    const sel=row.querySelector('select'); const inp=row.querySelector('input[type="number"]');
+    if(!sel||!sel.value) return null;
+    const item=items.find(i=>i.id===sel.value);
+    return {itemId:sel.value,name:item?.name||sel.options[sel.selectedIndex]?.text||'',qty:parseInt(inp?.value||1)};
+  }).filter(Boolean);
+  loadSO();
+  if(id){
+    const idx=allSO.findIndex(s=>s.id===id);
+    if(idx>=0) allSO[idx]={...allSO[idx],customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines};
+  } else {
+    allSO.push({id:genSOId(),customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines,created:Date.now()});
+  }
+  saveSO(); closeSOModal(); renderSO(); toast('Salgsordre gemt');
+}
+
+function deleteSO(id){
+  if(!confirm('Slet salgsordre?')) return;
+  loadSO(); allSO=allSO.filter(s=>s.id!==id); saveSO(); renderSO(); toast('Slettet');
+}
+
+function openPickList(soId){
+  loadSO();
+  const so=allSO.find(s=>s.id===soId); if(!so) return;
+  const title=document.getElementById('pick-modal-title');
+  title.textContent=`Plukliste — ${so.id} — ${so.customer}`;
+
+  // Grupper linjer efter rum/hylde
+  const lineDetails=so.lines.map(l=>{
+    const item=items.find(i=>i.id===l.itemId)||{};
+    const room=rooms.find(r=>r.id===item.room);
+    return {...l,item,roomName:room?.name||'Ukendt rum',shelf:item.shelf||'—',sku:item.sku||'',inStock:parseInt(item.qty||0)};
+  }).sort((a,b)=>a.roomName.localeCompare(b.roomName,'da')||(a.shelf||'').localeCompare(b.shelf||'','da'));
+
+  const grouped={};
+  lineDetails.forEach(l=>{ if(!grouped[l.roomName]) grouped[l.roomName]=[]; grouped[l.roomName].push(l); });
+
+  const body=document.getElementById('pick-modal-body');
+  body.innerHTML=`
+    <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--ink-3)">
+      Dato: <strong>${so.date}</strong> · Status: <strong>${so.status}</strong>${so.note?` · Note: <em>${esc(so.note)}</em>`:''}
+    </div>
+    ${Object.entries(grouped).map(([room,lines])=>`
+      <div style="margin-bottom:18px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin-bottom:8px">📍 ${esc(room)}</div>
+        ${lines.map(l=>`<div style="display:grid;grid-template-columns:24px 1fr 60px 60px 70px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <input type="checkbox" style="width:16px;height:16px">
+          <div>
+            <div style="font-size:13px;font-weight:600">${esc(l.name)}</div>
+            ${l.sku?`<div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--ink-3)">${esc(l.sku)}</div>`:''}
+          </div>
+          <div style="font-size:11px;color:var(--ink-3);text-align:center">${esc(l.shelf)}</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;text-align:center">${l.qty}</div>
+          <div style="font-size:11px;color:${l.inStock>=l.qty?'var(--green)':'var(--red)'};text-align:right">${l.inStock} på lager</div>
+        </div>`).join('')}
+      </div>`).join('')}
+    <div style="margin-top:20px;padding-top:12px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;font-size:13px;font-weight:600">
+      <span>Total varer: ${lineDetails.reduce((s,l)=>s+l.qty,0)} stk fordelt på ${so.lines.length} linjer</span>
+      <span>Plukket af: _______________</span>
+    </div>`;
+  document.getElementById('pick-modal-overlay').style.display='flex';
+}
+function closePickModal(){ document.getElementById('pick-modal-overlay').style.display='none'; }
+
+// ── LABELS ──
+function openLabelModal(){
+  const catSel=document.getElementById('label-cat-filter');
+  const roomSel=document.getElementById('label-room-filter');
+  catSel.innerHTML='<option value="">Alle kategorier</option>'+CATS.map(c=>`<option>${esc(c)}</option>`).join('');
+  roomSel.innerHTML='<option value="">Alle rum</option>'+rooms.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('');
+  renderLabelPreview();
+  document.getElementById('label-modal-overlay').style.display='flex';
+}
+function closeLabelModal(){ document.getElementById('label-modal-overlay').style.display='none'; }
+
+function renderLabelPreview(){
+  const cat=document.getElementById('label-cat-filter')?.value||'';
+  const room=document.getElementById('label-room-filter')?.value||'';
+  let filtered=items;
+  if(cat) filtered=filtered.filter(i=>i.cat===cat);
+  if(room) filtered=filtered.filter(i=>i.room===room);
+  document.getElementById('label-count').textContent=filtered.length+' etiketter';
+  const preview=document.getElementById('label-preview');
+  if(!filtered.length){ preview.innerHTML='<div style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen varer matcher filteret</div>'; return; }
+  preview.innerHTML=`<div class="label-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    ${filtered.map(i=>{
+      const r=rooms.find(x=>x.id===i.room);
+      const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(i.id)}&bgcolor=ffffff&color=000000&margin=2`;
+      return `<div class="label-card" style="border:1px solid #ccc;border-radius:6px;padding:8px;display:flex;gap:8px;align-items:flex-start;background:#fff;font-family:sans-serif;break-inside:avoid">
+        <img src="${qrUrl}" width="60" height="60" style="flex-shrink:0;border-radius:3px" loading="lazy">
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div style="font-size:10px;font-weight:700;line-height:1.3;word-break:break-word">${esc(i.name)}</div>
+          ${i.sku?`<div style="font-size:9px;color:#666;font-family:monospace;margin-top:2px">${esc(i.sku)}</div>`:''}
+          <div style="font-size:9px;color:#444;margin-top:3px">${r?esc(r.name):''}${i.shelf?` · ${esc(i.shelf)}`:''}</div>
+          <div style="font-size:9px;font-weight:600;color:#000;margin-top:2px">Antal: ______</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// ── CSV IMPORT ──
+function importCSV(input){
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const lines=e.target.result.split('\n').map(l=>l.trim()).filter(Boolean);
+    if(lines.length<2){ toast('Tom eller ugyldig CSV-fil'); return; }
+    // Detect header
+    const header=lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim().toLowerCase());
+    const col=n=>header.indexOf(n);
+    const iName=col('varenavn'), iSku=col('sku'), iCat=col('kategori');
+    const iRoom=col('rum'), iShelf=col('placering'), iQty=col('antal');
+    const iMin=col('minimum'), iNote=col('note');
+    if(iName<0){ toast('Kolonnen "Varenavn" mangler i CSV'); input.value=''; return; }
+    let imported=0, skipped=0;
+    const rows=lines.slice(1).map(l=>{
+      // Split respecting quoted commas
+      const cells=[]; let cur='',inQ=false;
+      for(const ch of l){ if(ch==='"'){ inQ=!inQ; }else if(ch===','&&!inQ){ cells.push(cur.trim()); cur=''; }else{ cur+=ch; } }
+      cells.push(cur.trim());
+      return cells.map(c=>c.replace(/^"|"$/g,''));
+    });
+    const updates=[];
+    rows.forEach(cells=>{
+      const name=cells[iName]||''; if(!name){ skipped++; return; }
+      const sku=iSku>=0?cells[iSku]||'':'';
+      const qty=iQty>=0?parseInt(cells[iQty])||0:null;
+      const min=iMin>=0?parseInt(cells[iMin])||0:null;
+      const note=iNote>=0?cells[iNote]||'':'';
+      const cat=iCat>=0?cells[iCat]||'':'';
+      const shelf=iShelf>=0?cells[iShelf]||'':'';
+      // Try match by SKU first, then name
+      let existing=sku?items.find(i=>i.sku&&i.sku.toLowerCase()===sku.toLowerCase()):null;
+      if(!existing) existing=items.find(i=>i.name.toLowerCase()===name.toLowerCase());
+      if(existing){
+        const upd={...existing};
+        if(qty!==null) upd.qty=qty;
+        if(min!==null) upd.minQty=min;
+        if(note) upd.note=note;
+        if(cat) upd.cat=cat;
+        if(shelf) upd.shelf=shelf;
+        updates.push(upd); imported++;
+      } else { skipped++; }
+    });
+    if(!updates.length){ toast(`Ingen matchende varer fundet (${skipped} rækker sprunget over)`); input.value=''; return; }
+    if(!confirm(`Opdater ${imported} varer fra CSV? (${skipped} rækker matchede ikke og springes over)`)) { input.value=''; return; }
+    // Save all updates sequentially
+    let done=0;
+    const next=()=>{ if(done>=updates.length){ toast(`${imported} varer opdateret fra CSV`); loadAll(); return; }
+      saveItem(updates[done].id,updates[done]); done++; setTimeout(next,150); };
+    next();
+  };
+  reader.readAsText(file,'utf-8');
+  input.value='';
+}
+
+// Udvid exportCSV med flere felter
+function exportCSV(){
+  const rows=[['Varenavn','SKU','Kategori','Rum','Placering','Antal','Minimum','Kostpris','Leverandør','Leveringstid (dage)','MOQ','Note']];
+  items.forEach(i=>{
+    const r=rooms.find(r=>r.id===i.room);
+    const sup=allLeverandoerer?.find(s=>s.id===i.supplier);
+    rows.push([i.name,i.sku||'',i.cat,r?.name||'',i.shelf||'',i.qty,i.minQty,i.costPrice||'',sup?.name||'',i.leadDays||'',i.moq||'',i.note||'']);
+  });
+  const csv=rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='lager-'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV downloadet ('+items.length+' varer)');
 }
 
 // ── EAN BARCODE LOOKUP ──
