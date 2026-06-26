@@ -1511,7 +1511,8 @@ function renderOverview(){
       return (pkg.items||[]).reduce((s,e)=>{
         const it = items.find(i=>i.id===e.id);
         const pr = it ? findSesuPrice(it.name, it.sku) : null;
-        return s + (pr ? pr.price * e.qty : 0);
+        const price = e.price || (pr ? pr.price : 0);
+        return s + price * e.qty;
       }, 0);
     };
 
@@ -1995,13 +1996,14 @@ function renderShipments(ships){
     return sum + (pkg.items||[]).reduce((s2,e)=>{
       const it = items.find(i=>i.id===e.id);
       const pr = it ? findSesuPrice(it.name, it.sku) : null;
-      return s2 + (pr ? pr.price * e.qty : 0);
+      const price = e.price || (pr ? pr.price : 0);
+      return s2 + price * e.qty;
     },0);
   },0);
   const transitValueStr = transitValue > 0 ? transitValue.toLocaleString('da-DK')+' kr.' : '—';
   document.getElementById('ship-stats').innerHTML = `
     <div class="stat-card blue"><div class="stat-label">Forsendelser</div><div class="stat-value">${String(total).padStart(2,'0')}</div><div class="stat-detail">denne side</div></div>
-    <div class="stat-card yellow"><div class="stat-label">Under transport<div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--ink-2)">${transitValueStr}</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Under transport</div><div class="stat-value">${String(transit).padStart(2,'0')}</div><div class="stat-detail" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--ink-2)">${transitValueStr}</div></div>
     <div class="stat-card green"><div class="stat-label">Leveret</div><div class="stat-value">${String(delivered).padStart(2,'0')}</div><div class="stat-detail">afsluttede</div></div>`;
 
   if(!filtered.length){ if(empty) empty.style.display=''; return; }
@@ -2046,7 +2048,8 @@ function renderShipments(ships){
       ? pkgItems.reduce((sum, entry) => {
           const it = items.find(i=>i.id===entry.id);
           const pr = it ? findSesuPrice(it.name, it.sku) : null;
-          return sum + (pr ? pr.price * entry.qty : 0);
+          const price = entry.price || (pr ? pr.price : 0);
+          return sum + price * entry.qty;
         }, 0)
       : null;
     const pkgValueCell = pkgValue !== null
@@ -2732,7 +2735,8 @@ function openPackageModal(shipId){
     return (window.pkgModalRows||[]).reduce((sum,e)=>{
       const it = items.find(i=>i.id===e.id);
       const pr = it ? findSesuPrice(it.name, it.sku) : null;
-      return sum + (pr ? pr.price * e.qty : 0);
+      const price = e.price || (pr ? pr.price : 0);
+      return sum + price * e.qty;
     }, 0);
   }
 
@@ -2745,11 +2749,12 @@ function openPackageModal(shipId){
     const rowsHtml = rows.map((e,idx)=>{
       const it = items.find(i=>i.id===e.id);
       const pr = it ? findSesuPrice(it.name, it.sku) : null;
-      const lineVal = pr ? (pr.price * e.qty).toLocaleString('da-DK')+' kr.' : '—';
+      const linePrice = e.price || (pr ? pr.price : 0);
+      const lineVal = linePrice ? (linePrice * e.qty).toLocaleString('da-DK')+' kr.' : '—';
       return `<div style="display:grid;grid-template-columns:1fr 70px 80px 24px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-light)">
         <div style="font-size:13px;font-weight:500">${esc(it?it.name:e.id)}</div>
         <input type="number" min="1" value="${e.qty}" style="width:64px;text-align:center;border:1px solid var(--border-light);border-radius:4px;padding:3px 6px;font-size:13px"
-          onchange="window.pkgModalRows[${idx}].qty=Math.max(1,parseInt(this.value)||1);document.getElementById('pkg-total').textContent=window.pkgModalRows.reduce((s,e)=>{const it=items.find(i=>i.id===e.id);const pr=it?findSesuPrice(it.name,it.sku):null;return s+(pr?pr.price*e.qty:0);},0).toLocaleString('da-DK')+' kr.'">
+          onchange="window.pkgModalRows[${idx}].qty=Math.max(1,parseInt(this.value)||1);document.getElementById('pkg-total').textContent=window.pkgModalRows.reduce((s,e)=>{const it=items.find(i=>i.id===e.id);const pr=it?findSesuPrice(it.name,it.sku):null;const p=e.price||(pr?pr.price:0);return s+p*e.qty;},0).toLocaleString('da-DK')+' kr.'">
         <div style="font-size:12px;color:var(--blue);font-family:'IBM Plex Mono',monospace">${lineVal}</div>
         <button onclick="window.pkgModalRows.splice(${idx},1);window.pkgRender('')" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px;line-height:1">×</button>
       </div>`;
@@ -2816,8 +2821,15 @@ function openPackageModal(shipId){
 
 async function savePackageContentsModal(shipId){
   const sid = String(shipId);
-  const newRows = window.pkgModalRows || [];
+  const rawRows = window.pkgModalRows || [];
   const skipDeduction = window.pkgSkipDeduction === true;
+
+  // Snapshot current sesu prices into each item so pakkeværdi stays historically accurate
+  const newRows = rawRows.map(e => {
+    const it = items.find(i => i.id === e.id);
+    const pr = it && sesuPricesLoaded ? findSesuPrice(it.name, it.sku) : null;
+    return { ...e, price: e.price || (pr ? pr.price : undefined) };
+  });
 
   // Compute diff: old contents vs new contents
   const oldRows = (shipPackageContents[sid]||{}).items || [];
@@ -2834,7 +2846,8 @@ async function savePackageContentsModal(shipId){
     });
     if(!d || !d.ok){ toast('Fejl ved gemning'); return; }
 
-    shipPackageContents[sid] = newRows;
+    if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
+    shipPackageContents[sid].items = newRows;
     shipPackageContents[sid+'__skip'] = true; // mark as processed next time
 
     if(!skipDeduction){
