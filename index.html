@@ -1313,12 +1313,21 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
           </div>
           <div class="chart-wrap"><canvas id="ship-chart"></canvas></div>
         </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Lav beholdning</span>
-            <span id="low-count" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:4px">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title" style="color:var(--red)">Udsolgt</span>
+              <span id="low-count-out" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+            </div>
+            <div id="ov-low-out"></div>
           </div>
-          <div id="ov-low"></div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Lav beholdning</span>
+              <span id="low-count-low" style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace"></span>
+            </div>
+            <div id="ov-low-low"></div>
+          </div>
         </div>
       </div>
 
@@ -1952,12 +1961,11 @@ function renderOverview(){
 
   const outOfStock = low.filter(i=>parseInt(i.qty||0)===0);
   const lowStock   = low.filter(i=>parseInt(i.qty||0)>0);
-  document.getElementById('low-count').textContent = low.length ? outOfStock.length+' udsolgt · '+lowStock.length+' lav' : '';
-  const lEl = document.getElementById('ov-low');
-  if(!low.length){
-    lEl.innerHTML = '<div class="card-padded" style="font-size:13px;color:var(--ink-3)">✓ Alle varer er over minimumsbeholdning</div>';
-    return;
-  }
+  const outEl = document.getElementById('ov-low-out');
+  const lowEl = document.getElementById('ov-low-low');
+  document.getElementById('low-count-out').textContent = outOfStock.length ? outOfStock.length+' varer' : '';
+  document.getElementById('low-count-low').textContent = lowStock.length ? lowStock.length+' varer' : '';
+
   function rowHtml(i){
     const r = rooms.find(r=>r.id===i.room);
     const qty = parseInt(i.qty||0);
@@ -1971,16 +1979,14 @@ function renderOverview(){
       ${qty>0?`<div class="progress"><div class="progress-fill low" style="width:${pct}%"></div></div>`:''}
     </div>`;
   }
-  let html = '';
-  if(outOfStock.length){
-    html += `<div style="padding:8px 16px 4px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--red);border-top:1px solid var(--border-light)">Udsolgt (${outOfStock.length})</div>`;
-    html += outOfStock.map(rowHtml).join('');
-  }
-  if(lowStock.length){
-    html += `<div style="padding:8px 16px 4px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);border-top:1px solid var(--border-light)">Lav beholdning (${lowStock.length})</div>`;
-    html += lowStock.map(rowHtml).join('');
-  }
-  lEl.innerHTML = html;
+
+  outEl.innerHTML = outOfStock.length
+    ? outOfStock.map(rowHtml).join('')
+    : '<div class="card-padded" style="font-size:13px;color:var(--green)">✓ Intet er udsolgt</div>';
+
+  lowEl.innerHTML = lowStock.length
+    ? lowStock.map(rowHtml).join('')
+    : '<div class="card-padded" style="font-size:13px;color:var(--green)">✓ Alt er over minimum</div>';
 }
 
 function renderItems(){
