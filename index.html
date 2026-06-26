@@ -1738,18 +1738,6 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
 
       <!-- FRAGTPRISER -->
       <div id="tab-priser" class="view" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
-          <div style="display:flex;gap:8px;align-items:center">
-            <div class="search-input-wrap" style="min-width:200px">
-              <span class="search-icon">⌕</span>
-              <input type="text" id="pris-search" placeholder="Søg fragtfirma eller produkt…" oninput="filterPriser()">
-            </div>
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="loadPriser()">⟳ Opdater</button>
-        </div>
-        <div style="background:var(--blue-dim);border:1px solid var(--blue-dim);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--blue);margin-bottom:16px;line-height:1.6">
-          💡 Dette er dine tilgængelige fragtprodukter fra Shipmondo. Spørg <strong>AI-assistenten</strong> (✦) om aktuelle priser — den søger på nettet.
-        </div>
         <!-- PRISBEREGNER -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-header"><span class="card-title">📦 Prisberegner</span><span style="font-size:11px;color:var(--ink-3)">ekskl. moms</span></div>
@@ -1776,12 +1764,6 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
         <div id="static-carrier-cards"></div>
         <div style="font-size:11px;color:var(--ink-3);text-align:right;margin-bottom:24px">Priser ekskl. moms · Indleveret ved terminal/pakkeshop</div>
 
-        <!-- SHIPMONDO PRODUKTER -->
-        <div id="pris-loading" style="text-align:center;padding:3rem;color:var(--ink-3);font-size:13px">Henter fragtpriser…</div>
-        <div id="pris-content" style="display:none">
-          <div style="font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Dine Shipmondo-produkter</div>
-          <div id="pris-carriers"></div>
-        </div>
       </div>
     </div>
   </main>
@@ -2775,7 +2757,7 @@ function showTab(t){
   const priceReady = loadSesuPrices();
   if(t === 'forsendelser' && !shipLoaded) priceReady.then(()=>{ if(!shipLoaded) loadShipments(); });
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
-  if(t === 'priser'){ renderStaticCarrierCards(); if(!prisLoaded) loadPriser(); }
+  if(t === 'priser') renderStaticCarrierCards();
   if(t === 'optaelling') renderOptaelling();
   if(t === 'modtagelse'){ if(!recvItems.length) restoreRecvDraftLocal(); renderModtagelse(); }
   if(t === 'leverandoerer') renderLeverandoerer();
@@ -3371,10 +3353,6 @@ async function loadMonthlyStats() {
   } catch(e) {}
 }
 
-// ── FRAGTPRISER ──
-let prisLoaded = false;
-let allProducts = [];
-let allPriceStats = {};
 let sesuPrices = {};
 let sesuByName = {};
 let sesuUrls = {};   // sku → sesu.dk product URL
@@ -3382,124 +3360,6 @@ let sesuImages = {}; // sku → sesu.dk product image URL
 let sesuProducts = []; // [{sku, price, name}] sorted by name
 let sesuPricesLoaded = false;
 
-async function loadPriser(){
-  prisLoaded = false;
-  const loading = document.getElementById('pris-loading');
-  const content = document.getElementById('pris-content');
-  if(loading){ loading.style.display = 'block'; loading.textContent = 'Henter fragtprodukter…'; }
-  if(content) content.style.display = 'none';
-
-  // Step 1: load products and show immediately
-  try {
-    const d = await jsonpShip({ action:'getProducts', country:'DK' });
-    if(d && d.error) throw new Error(d.error);
-    allProducts = Array.isArray(d) ? d : [];
-    allProducts = allProducts.filter(p => p.available !== false);
-    prisLoaded = true;
-    if(loading) loading.style.display = 'none';
-    if(content) content.style.display = 'block';
-    renderPriser(allProducts);
-  } catch(e) {
-    if(loading){ loading.style.display='block'; loading.textContent = 'Fejl ved hentning: ' + e.message; }
-    return;
-  }
-
-  // Step 2: load historical pricing stats in background
-  try {
-    const priceStats = await jsonpShip({ action:'getPricingStats' });
-    if(priceStats && !priceStats.error){ allPriceStats = priceStats; renderPriser(allProducts); }
-  } catch(e) { /* ingen priser — OK */ }
-}
-
-function filterPriser(){
-  const q = (document.getElementById('pris-search').value||'').toLowerCase();
-  const filtered = !q ? allProducts : allProducts.filter(p=>{
-    const carrierName = (p.carrier && p.carrier.name) ? p.carrier.name : (p.carrier_name||'');
-    return carrierName.toLowerCase().includes(q) ||
-      (p.name||'').toLowerCase().includes(q) ||
-      (p.code||p.product_code||'').toLowerCase().includes(q);
-  });
-  renderPriser(filtered);
-}
-
-function renderPriser(products){
-  const el = document.getElementById('pris-carriers');
-  if(!products.length){
-    el.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">Ingen produkter fundet</div></div>';
-    return;
-  }
-
-  // Group by carrier.name, sort alphabetically
-  const groups = {};
-  products.forEach(p => {
-    const carrier = (p.carrier && p.carrier.name) ? p.carrier.name : (p.carrier_name || 'Andet');
-    if(!groups[carrier]) groups[carrier] = [];
-    groups[carrier].push(p);
-  });
-
-  const sortedCarriers = Object.keys(groups).sort((a,b)=>a.localeCompare(b,'da'));
-
-  el.innerHTML = sortedCarriers.map(carrier => {
-    const prods = groups[carrier]
-      .filter((p,i,arr) => arr.findIndex(x=>(x.code||x.product_code)===(p.code||p.product_code)) === i)
-      .sort((a,b)=>(a.name||'').localeCompare(b.name||'','da'));
-
-    return `<div class="card" style="margin-bottom:16px">
-      <div class="card-header">
-        <span class="card-title">🚚 ${esc(carrier)}</span>
-        <span style="font-size:11px;color:var(--ink-3);font-family:'IBM Plex Mono',monospace">${prods.length} produkter</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th style="width:28%">Produkt</th>
-            <th style="width:14%">Kode</th>
-            <th style="width:14%">Leveringstid</th>
-            <th style="width:10%">Fra</th>
-            <th style="width:18%">Dit snit (seneste 3 mdr.)</th>
-            <th style="width:16%">Brug</th>
-          </tr></thead>
-          <tbody>
-            ${prods.map(p => {
-              const transit = p.expected_transit_time || '—';
-              const fromCountry = p.sender_country_code || '—';
-              const code = p.code || p.product_code || '';
-              const ps = allPriceStats[code];
-              const available = p.available !== false;
-
-              let priceCell, usageCell;
-              if (ps) {
-                const avgFmt = ps.avg.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2});
-                const minFmt = ps.min.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2});
-                const maxFmt = ps.max.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2});
-                priceCell = `<td>
-                  <div style="font-weight:600;font-size:13px">${avgFmt} kr.</div>
-                  <div style="font-size:11px;color:var(--ink-3)">min ${minFmt} / max ${maxFmt}</div>
-                </td>`;
-                usageCell = `<td><span class="badge badge-blue">${ps.count} fors.</span></td>`;
-              } else {
-                priceCell = `<td style="color:var(--ink-3);font-size:12px">Ikke brugt</td>`;
-                usageCell = `<td>—</td>`;
-              }
-
-              return `<tr style="${!available?'opacity:.5':''}">
-                <td>
-                  <div class="td-name">${esc(p.name||'—')}</div>
-                  ${!available?'<span class="badge badge-gray" style="margin-top:2px">Ikke tilgængelig</span>':''}
-                </td>
-                <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(code||'—')}</span></td>
-                <td style="font-size:12px;color:var(--ink-2)">${esc(transit)}</td>
-                <td><span style="font-size:11px;font-family:'IBM Plex Mono',monospace">${esc(fromCountry)}</span></td>
-                ${priceCell}
-                ${usageCell}
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-  }).join('');
-}
 
 // ── STATISKE FRAGTPRISER ──
 const STATIC_PRICES = [
