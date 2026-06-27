@@ -4338,11 +4338,8 @@ function doLogout() {
   ];
   sensitiveKeys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
 
-  // Ryd ship_status_* nøgler (dynamiske nøgler per forsendelse)
-  try {
-    Object.keys(localStorage).filter(k=>k.startsWith('ship_status_')||k.startsWith('ship_pkg_'))
-      .forEach(k=>localStorage.removeItem(k));
-  } catch(e){}
+  // ship_status_* og ship_pkg_* beholdes — ikke personfølsomme, og
+  // Sheets-synk kan have fejlet, så vi mister ikke manuelt satte statusser
 
   // Nulstil data i hukommelsen så konsollen ikke kan læse det efter logout
   items=[]; rooms=[]; histEntries=[]; allShips=[]; allSO=[];
