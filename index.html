@@ -2381,7 +2381,6 @@ function renderOverview(){
   if(pkgStatsEl && allShips.length){
     const now = new Date();
     const thisY = now.getFullYear(), thisM = now.getMonth();
-    const daysElapsed = now.getDate();
     const daysInMonth = new Date(thisY, thisM+1, 0).getDate();
     const daysInNext  = new Date(thisY, thisM+2, 0).getDate();
     const MONTHS = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
@@ -2413,8 +2412,16 @@ function renderOverview(){
     });
     const lastMonthValue = lastMonthShips.reduce((s,ship)=>s+calcPkgValue(ship.id),0);
 
-    // Projection: daily rate this month × days in next month, blend with last month if available
-    const dailyRate = daysElapsed > 0 ? thisMonthValue / daysElapsed : 0;
+    // Brug dato for første forsendelse denne måned som startpunkt — ikke d.1
+    const firstShipDate = thisMonthShips.length
+      ? new Date(thisMonthShips.map(s=>s.created_at).sort()[0])
+      : now;
+    const msPerDay = 86400000;
+    const daysActive = Math.max(1, Math.round((now - firstShipDate) / msPerDay) + 1);
+    const daysElapsed = daysActive; // bruges til % af måneden nedenfor
+
+    // Projection: daily rate siden første forsendelse × dage i næste måned
+    const dailyRate = thisMonthValue / daysActive;
     let projected = dailyRate * daysInNext;
     if(lastMonthValue > 0) projected = projected * 0.6 + lastMonthValue * 0.4;
     const projectedFmt = projected > 0 ? '~'+Math.round(projected).toLocaleString('da-DK')+' kr.' : '—';
