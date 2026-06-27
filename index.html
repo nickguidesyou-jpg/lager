@@ -3353,6 +3353,15 @@ async function openNewShipmentModal(){
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
+      <div style="background:var(--surface-2);border:1px solid var(--border-light);border-radius:8px;padding:12px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Indsæt ordremail — AI udfylder automatisk</div>
+        <textarea id="sh-ai-paste" rows="4" placeholder="Indsæt ordrebekræftelse eller kundemail her…" style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--surface-1);color:var(--ink-1);font-family:inherit"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button id="sh-ai-btn" class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="aiParseShipment()">✦ Udfyld med AI</button>
+          <span id="sh-ai-status" style="font-size:12px;color:var(--ink-3)"></span>
+        </div>
+      </div>
+
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)">Afsender</div>
         <span style="font-size:11px;color:var(--ink-3);background:var(--surface-2);padding:2px 8px;border-radius:4px">Khaki ApS — pre-udfyldt</span>
@@ -3401,6 +3410,45 @@ async function openNewShipmentModal(){
       <button class="btn btn-primary" onclick="submitShipment()">Opret forsendelse</button>
     </div>`;
   openModal();
+}
+
+async function aiParseShipment() {
+  const text = (document.getElementById('sh-ai-paste').value || '').trim();
+  if (!text) { document.getElementById('sh-ai-status').textContent = 'Indsæt mailtekst først'; return; }
+  const btn = document.getElementById('sh-ai-btn');
+  const status = document.getElementById('sh-ai-status');
+  btn.disabled = true;
+  status.textContent = 'Analyserer…';
+  try {
+    const res = await jsonpShip({
+      action: 'claudeProxy',
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: 'Du er en assistent der udtrækker leveringsoplysninger fra ordremails. Svar KUN med et JSON-objekt og intet andet — ingen forklaring, ingen markdown. Felter: name (fulde navn), address (vejnavn + nr), zip (postnr), city (bynavn), country (ISO 2-bogstav, default DK), email, phone, reference (ordre-/fakturanummer hvis nævnt). Sæt tomme strenge for manglende felter.',
+      messages: [{ role: 'user', content: 'Uddrag leveringsoplysninger fra denne tekst:\n\n' + text }]
+    }, 30000);
+    if (res.error) throw new Error(res.error);
+    const raw = res.content?.[0]?.text || '';
+    const json = raw.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) throw new Error('Uventet svar fra AI');
+    const d = JSON.parse(json);
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('sh-rname',    d.name);
+    set('sh-raddr',    d.address);
+    set('sh-rzip',     d.zip);
+    set('sh-rcity',    d.city);
+    set('sh-rcountry', d.country || 'DK');
+    set('sh-remail',   d.email);
+    set('sh-rphone',   d.phone);
+    set('sh-ref',      d.reference);
+    status.textContent = '✓ Felter udfyldt — tjek venligst';
+    status.style.color = 'var(--green)';
+  } catch(e) {
+    status.textContent = 'Fejl: ' + e.message;
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function submitShipment(){
