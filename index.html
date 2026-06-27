@@ -3428,10 +3428,13 @@ async function aiParseShipment() {
       system: 'Du er en assistent der udtrækker leveringsoplysninger fra ordremails. Svar KUN med et JSON-objekt og intet andet — ingen forklaring, ingen markdown. Felter: name (fulde navn), address (vejnavn + nr), zip (postnr), city (bynavn), country (ISO 2-bogstav, default DK), email, phone, reference (ordre-/fakturanummer hvis nævnt). Sæt tomme strenge for manglende felter.',
       messages: [{ role: 'user', content: 'Uddrag leveringsoplysninger fra denne tekst:\n\n' + text }]
     }, 30000);
-    if (res.error) throw new Error(res.error);
+    if (res.type === 'error' || res.error) {
+      const msg = res.error?.message || (typeof res.error === 'string' ? res.error : JSON.stringify(res.error));
+      throw new Error(msg);
+    }
     const raw = res.content?.[0]?.text || '';
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
-    if (!json) throw new Error('Uventet svar fra AI');
+    if (!json) throw new Error('Uventet svar fra AI: ' + raw.slice(0,100));
     const d = JSON.parse(json);
     const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
     set('sh-rname',    d.name);
@@ -3445,7 +3448,7 @@ async function aiParseShipment() {
     status.textContent = '✓ Felter udfyldt — tjek venligst';
     status.style.color = 'var(--green)';
   } catch(e) {
-    status.textContent = 'Fejl: ' + e.message;
+    status.textContent = 'Fejl: ' + (e.message || JSON.stringify(e));
     status.style.color = 'var(--red)';
   } finally {
     btn.disabled = false;
