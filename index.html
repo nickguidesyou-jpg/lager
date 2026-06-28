@@ -3397,7 +3397,7 @@ async function openNewShipmentModal(){
       pgCarriers[cn].forEach(function(p){
         const val = esc(p.code||p.product_code||'');
         const lbl = esc(p.name||p.code||p.product_code||'');
-        productOpts += '<option value="' + val + '">' + lbl + '</option>';
+        productOpts += '<option value="' + val + '" data-carrier="' + esc(cn) + '" data-pname="' + lbl + '">' + lbl + '</option>';
       });
       productOpts += '</optgroup>';
     });
@@ -3456,8 +3456,8 @@ async function openNewShipmentModal(){
       <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
       <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Forsendelse</div>
       <div class="form-row">
-        <div class="fg"><label>Produkt</label><select id="sh-product">${productOpts}</select></div>
-        <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1"></div>
+        <div class="fg"><label>Produkt</label><select id="sh-product" onchange="updateShipmentPrice()">${productOpts}</select></div>
+        <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1" oninput="updateShipmentPrice()"></div>
       </div>
       <div class="form-row">
         <div class="fg"><label>Reference</label><input id="sh-ref" placeholder="Ordre nr."></div>
@@ -3474,12 +3474,17 @@ async function openNewShipmentModal(){
         </label>
       </div>
 
+      <div style="height:1px;background:var(--border-light);margin:16px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Prisestimering</div>
+      <div id="sh-price-est" style="font-size:13px"></div>
+
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Annuller</button>
       <button class="btn btn-primary" onclick="submitShipment()">Opret forsendelse</button>
     </div>`;
   openModal();
+  setTimeout(updateShipmentPrice, 50);
 }
 
 async function aiParseShipment() {
@@ -4151,6 +4156,65 @@ function calcBedstePris(){
   }).filter(Boolean).join('');
 
   resEl.innerHTML=`<div style="border-top:1px solid var(--border)">${rows}</div>`;
+}
+
+function updateShipmentPrice(){
+  const el = document.getElementById('sh-price-est');
+  if(!el) return;
+  const w = parseInt(document.getElementById('sh-weight')?.value || 0);
+  if(!w || w < 1) { el.innerHTML = '<span style="color:var(--ink-3)">Angiv vægt for at se prisestimering</span>'; return; }
+  if(w > 20000) { el.innerHTML = '<span style="color:var(--red)">Over 20 kg ikke understøttet</span>'; return; }
+
+  // Match valgt produkt til STATIC_PRICES
+  const sel = document.getElementById('sh-product');
+  const opt = sel?.options[sel.selectedIndex];
+  const carrier = (opt?.dataset.carrier || '').toLowerCase();
+  const pname   = (opt?.dataset.pname || opt?.text || '').toLowerCase();
+
+  const matched = STATIC_PRICES.find(p =>
+    carrier.includes(p.carrier.toLowerCase()) &&
+    (pname.includes(p.name.toLowerCase().split(' ')[0]) ||
+     p.name.toLowerCase().split(' ')[0].includes(pname.split(' ')[0]))
+  );
+
+  // Alle muligheder sorteret efter pris
+  const all = STATIC_PRICES
+    .map(p => ({ ...p, price: getStaticPrice(p, w) }))
+    .filter(p => p.price != null)
+    .sort((a, b) => a.price - b.price);
+
+  const matchedPrice = matched ? getStaticPrice(matched, w) : null;
+  const cheapest = all[0];
+
+  let html = '';
+
+  // Valgt produkt — stor pris
+  if(matchedPrice != null) {
+    const saving = cheapest && cheapest.price < matchedPrice ? matchedPrice - cheapest.price : 0;
+    html += `<div style="display:flex;align-items:baseline;gap:10px;padding:10px 14px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:8px;margin-bottom:10px">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:var(--accent)">${fmtKr(matchedPrice)}</span>
+      <span style="font-size:12px;color:var(--ink-2)">${esc(matched.carrier)} · ${esc(matched.name)}</span>
+      ${saving > 0.5 ? `<span style="font-size:11px;color:var(--amber);margin-left:auto">+${fmtKr(saving)} dyrere end billigste</span>` : ''}
+    </div>`;
+  } else {
+    html += `<div style="color:var(--ink-3);font-size:12px;margin-bottom:8px">Valgt produkt ikke i statisk prisliste — se alternativer nedenfor</div>`;
+  }
+
+  // Øvrige muligheder
+  html += `<div style="font-size:11px;color:var(--ink-3);margin-bottom:6px">Alle muligheder ved ${w >= 1000 ? (w/1000).toFixed(1)+' kg' : w+' g'}:</div>`;
+  html += `<div style="display:flex;flex-direction:column;gap:3px">`;
+  html += all.map((p, i) => {
+    const isSelected = matched && p.carrier === matched.carrier && p.name === matched.name;
+    const isCheapest = i === 0;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:${isSelected ? 'var(--accent-dim)' : 'transparent'}">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;width:70px;flex-shrink:0">${fmtKr(p.price)}</span>
+      ${isCheapest ? '<span style="font-size:9px;font-weight:700;background:rgba(45,130,65,.2);color:#3cb371;border-radius:3px;padding:1px 5px;flex-shrink:0">BILLIGST</span>' : '<span style="width:51px;flex-shrink:0"></span>'}
+      <span style="font-size:12px;color:var(--ink-2)">${esc(p.carrier)} · ${esc(p.name)}</span>
+    </div>`;
+  }).join('');
+  html += `</div><div style="font-size:10px;color:var(--ink-3);margin-top:8px">Estimerede priser — faktisk pris aftales med Shipmondo</div>`;
+
+  el.innerHTML = html;
 }
 
 function renderStaticCarrierCards(){
