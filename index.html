@@ -3302,6 +3302,13 @@ function setShipStatus(shipId, status){
   jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored }).catch(()=>{});
 }
 
+async function debugLabel(id){
+  closeModal();
+  toast('Henter debug-info…');
+  const d = await jsonpShip({ action:'debugLabel', id });
+  alert('SHIPMONDO DEBUG for forsendelse ' + id + ':\n\n' + JSON.stringify(d, null, 2));
+}
+
 async function printLabel(id){
   document.getElementById('modal-box').innerHTML = `
     <div class="modal-head">
@@ -3321,6 +3328,7 @@ async function printLabel(id){
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-ghost btn-sm" onclick="debugLabel(${id})" style="font-size:11px;color:var(--ink-3)">Debug</button>
       <button class="btn btn-primary" onclick="doPrintLabel(${id})">🖨 Hent &amp; print</button>
     </div>`;
   openModal();
