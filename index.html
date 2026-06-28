@@ -4037,6 +4037,14 @@ async function doLogin() {
     if (res && res.token) {
       completeLogin(res.token);
     } else if (res && res.step2) {
+      // Tjek om denne enhed er betroet (inden for 24 timer)
+      try {
+        const trust = JSON.parse(localStorage.getItem('lager_device_trust') || 'null');
+        if (trust && trust.token && trust.expires > Date.now()) {
+          completeLogin(trust.token);
+          return;
+        }
+      } catch(e) {}
       _loginHash = hash;
       document.getElementById('login-step-pw').style.display = 'none';
       document.getElementById('login-step-totp').style.display = 'block';
@@ -4072,6 +4080,7 @@ async function doVerifyTOTP() {
   try {
     const res = await jsonpShip({ action:'verifyStep2', hash: _loginHash, code });
     if(res && res.token){
+      try { localStorage.setItem('lager_device_trust', JSON.stringify({token:res.token, expires:Date.now()+86400000})); } catch(e){}
       completeLogin(res.token);
     } else {
       err.textContent = res?.error || 'Forkert kode';
@@ -4364,6 +4373,7 @@ function doLogout() {
     'lager_snap',         // Lagersnapshot med beholdningsdata
     'recv_draft',         // Varemodtagelse-kladde
     'ot_snapshots',       // Optællings-snapshots
+    'lager_device_trust', // Betroet-enhed token (24 timer)
   ];
   sensitiveKeys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
 
