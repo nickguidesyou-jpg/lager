@@ -1465,6 +1465,9 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
             <div id="ov-low-low"></div>
           </div>
         </div>
+        <div style="text-align:right;margin-top:16px">
+          <button class="btn btn-ghost btn-sm" onclick="generateMonthlyReport()" style="font-size:12px">📄 Generer månedrapport PDF</button>
+        </div>
       </div>
 
       <!-- VARER -->
@@ -3681,6 +3684,178 @@ let sesuImages = {}; // sku → sesu.dk product image URL
 let sesuProducts = []; // [{sku, price, name}] sorted by name
 let sesuPricesLoaded = false;
 
+
+// ── MÅNEDRAPPORT PDF ──
+function generateMonthlyReport() {
+  const now = new Date();
+  const MONTHS = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+  const monthName = MONTHS[now.getMonth()];
+  const year = now.getFullYear();
+
+  // Forsendelser denne måned
+  const thisM = now.getMonth(), thisY = now.getFullYear();
+  const monthShips = allShips.filter(s => {
+    if(!s.created_at) return false;
+    const d = new Date(s.created_at);
+    return d.getFullYear()===thisY && d.getMonth()===thisM;
+  });
+
+  // Pakkeværdi
+  const calcVal = sid => {
+    const pkg = shipPackageContents[String(sid)] || {};
+    return (pkg.items||[]).reduce((s,e)=>{
+      const it = items.find(i=>i.id===e.id);
+      const pr = it ? findSesuPrice(it.name, it.sku) : null;
+      return s + (e.price||(pr?pr.price:0)) * e.qty;
+    }, 0);
+  };
+  const totalPkgValue = monthShips.reduce((s,sh)=>s+calcVal(sh.id),0);
+
+  // Top 10 fra salgsordrer
+  const soldMap = {};
+  allSO.forEach(so => (so.lines||[]).forEach(l => {
+    if(!soldMap[l.itemId]) soldMap[l.itemId] = {name:l.name||'',qty:0};
+    soldMap[l.itemId].qty += parseInt(l.qty||0);
+  }));
+  const top10 = Object.entries(soldMap).sort((a,b)=>b[1].qty-a[1].qty).slice(0,10);
+
+  // Lagerstatus
+  const totalQty = items.reduce((s,i)=>s+parseInt(i.qty||0),0);
+  const lowItems = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  const outItems = items.filter(i=>parseInt(i.qty||0)===0);
+
+  // Lagerværdi
+  const lagervaerdi = items.reduce((s,i)=>{
+    const pr = findSesuPrice(i.name, i.sku);
+    return s + (pr ? pr.price * parseInt(i.qty||0) : 0);
+  }, 0);
+
+  const dateStr = now.toLocaleDateString('da-DK',{day:'numeric',month:'long',year:'numeric'});
+
+  const html = `<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>SESU Lagersystem — Månedrapport ${monthName} ${year}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 13px; }
+  .page { max-width: 800px; margin: 0 auto; padding: 48px 40px; }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:40px; padding-bottom:20px; border-bottom:2px solid #1a1a1a; }
+  .header-title h1 { font-size:22px; font-weight:700; letter-spacing:-.02em; }
+  .header-title p { font-size:12px; color:#666; margin-top:3px; }
+  .header-meta { text-align:right; font-size:11px; color:#888; line-height:1.8; }
+  .section { margin-bottom:32px; }
+  .section-title { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#888; margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid #e5e5e5; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  .kpi { background:#f8f8f8; border-radius:8px; padding:14px 16px; }
+  .kpi-label { font-size:10px; color:#888; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+  .kpi-value { font-size:22px; font-weight:700; font-family:'Courier New',monospace; letter-spacing:-.02em; }
+  .kpi-sub { font-size:10px; color:#888; margin-top:3px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#888; padding:8px 10px; border-bottom:1px solid #e5e5e5; }
+  td { padding:9px 10px; border-bottom:1px solid #f0f0f0; font-size:12px; }
+  tr:last-child td { border-bottom:none; }
+  .mono { font-family:'Courier New',monospace; font-weight:600; }
+  .badge-red { background:#fee; color:#c00; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:600; }
+  .badge-yellow { background:#fff8e0; color:#8a6800; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:600; }
+  .footer { margin-top:48px; padding-top:16px; border-top:1px solid #e5e5e5; font-size:10px; color:#aaa; display:flex; justify-content:space-between; }
+  @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="header-title">
+      <h1>SESU Bordben</h1>
+      <p>Månedlig Lagerrapport — ${monthName.charAt(0).toUpperCase()+monthName.slice(1)} ${year}</p>
+    </div>
+    <div class="header-meta">
+      Genereret: ${dateStr}<br>
+      SESU Lagersystem
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Nøgletal — ${monthName} ${year}</div>
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-label">Forsendelser</div>
+        <div class="kpi-value">${monthShips.length}</div>
+        <div class="kpi-sub">denne måned</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Pakkeværdi solgt</div>
+        <div class="kpi-value">${totalPkgValue>0?Math.round(totalPkgValue).toLocaleString('da-DK'):'—'}</div>
+        <div class="kpi-sub">kr. inkl. moms</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Samlet lagerværdi</div>
+        <div class="kpi-value">${lagervaerdi>0?Math.round(lagervaerdi).toLocaleString('da-DK'):'—'}</div>
+        <div class="kpi-sub">kr. til salgspriser</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Varer i alt</div>
+        <div class="kpi-value">${totalQty.toLocaleString('da-DK')}</div>
+        <div class="kpi-sub">stk. på lager</div>
+      </div>
+    </div>
+  </div>
+
+  ${top10.length ? `
+  <div class="section">
+    <div class="section-title">Top 10 mest solgte produkter</div>
+    <table>
+      <tr><th>#</th><th>Produkt</th><th style="text-align:right">Solgt</th></tr>
+      ${top10.map(([id,d],i)=>`<tr><td class="mono">${i+1}</td><td>${d.name||id}</td><td style="text-align:right" class="mono">${d.qty} stk.</td></tr>`).join('')}
+    </table>
+  </div>` : ''}
+
+  ${lowItems.length ? `
+  <div class="section">
+    <div class="section-title">Varer under minimum ${outItems.length ? `(${outItems.length} udsolgte)` : ''}</div>
+    <table>
+      <tr><th>Vare</th><th>SKU</th><th style="text-align:right">Beholdning</th><th style="text-align:right">Minimum</th><th style="text-align:right">Mangler</th></tr>
+      ${lowItems.map(i=>{
+        const qty=parseInt(i.qty||0), min=parseInt(i.minQty||0);
+        return `<tr>
+          <td>${i.name} ${qty===0?'<span class="badge-red">UDSOLGT</span>':'<span class="badge-yellow">LAV</span>'}</td>
+          <td class="mono" style="color:#888">${i.sku||'—'}</td>
+          <td style="text-align:right" class="mono">${qty}</td>
+          <td style="text-align:right" class="mono">${min}</td>
+          <td style="text-align:right" class="mono" style="color:#c00">${min-qty}</td>
+        </tr>`;
+      }).join('')}
+    </table>
+  </div>` : '<div class="section"><div class="section-title">Lagerstatus</div><p style="color:#666;font-size:12px">Alle varer over minimum ✓</p></div>'}
+
+  ${monthShips.length ? `
+  <div class="section">
+    <div class="section-title">Forsendelser denne måned</div>
+    <table>
+      <tr><th>ID</th><th>Modtager</th><th>Dato</th><th style="text-align:right">Pakkeværdi</th></tr>
+      ${monthShips.map(s=>{
+        const name=(s.receiver_address||[{name:''}])[0]?.name||s.parties?.find(p=>p.type==='receiver')?.name||'—';
+        const val=calcVal(s.id);
+        const d=new Date(s.created_at).toLocaleDateString('da-DK',{day:'numeric',month:'short'});
+        return `<tr><td class="mono" style="color:#888;font-size:11px">${s.id}</td><td>${name}</td><td>${d}</td><td style="text-align:right" class="mono">${val>0?Math.round(val).toLocaleString('da-DK')+' kr.':'—'}</td></tr>`;
+      }).join('')}
+    </table>
+  </div>` : ''}
+
+  <div class="footer">
+    <span>SESU Bordben — Fortroligt</span>
+    <span>SESU Lagersystem · ${dateStr}</span>
+  </div>
+</div>
+<script>window.onload = () => window.print();<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if(w) { w.document.write(html); w.document.close(); }
+  else toast('Tillad popups for at åbne rapporten');
+}
 
 // ── TOP 10 MEST SOLGTE ──
 function renderTop10(){
