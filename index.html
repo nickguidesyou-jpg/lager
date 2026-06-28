@@ -5,6 +5,11 @@
 <link rel="canonical" href="https://nickguidesyou-jpg.github.io/lager/">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SESU Lagersystem</title>
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lager">
+<meta name="theme-color" content="#0f0f14">
 <!-- Sikkerhed: forhindrer clickjacking og begrænser hvorfra ressourcer må hentes -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
@@ -1679,6 +1684,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
             <button class="btn btn-ghost btn-sm" onclick="autoCreatePOFromList()">⚡ Opret PO</button>
             <button class="btn btn-ghost btn-sm" onclick="openGenbestilling()">📧 Send ordre</button>
             <button class="btn btn-ghost btn-sm" onclick="copyShoppingList()">📋 Kopier liste</button>
+            <button class="btn btn-ghost btn-sm" onclick="aiReorderSuggestion()">✦ AI-forslag</button>
             <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print</button>
           </div>
         </div>
@@ -2071,7 +2077,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); setTimeout(animateStatCards, 50); }
 
 let _sesuPricesPromise = null;
 async function loadSesuPrices() {
@@ -2284,6 +2290,34 @@ function renderOversigtsAdvarsler(){
   }
 
   el.innerHTML=parts.length?`<div style="display:flex;flex-direction:column;gap:12px">${parts.join('')}</div>`:'';
+}
+
+function countUp(el, target, duration=600, prefix='', suffix='') {
+  if(!el) return;
+  const start = performance.now();
+  const from = 0;
+  const isFloat = String(target).includes('.');
+  const step = ts => {
+    const p = Math.min((ts - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    const val = from + (target - from) * ease;
+    el.textContent = prefix + (isFloat ? val.toFixed(2) : Math.round(val).toString().padStart(2,'0')) + suffix;
+    if(p < 1) requestAnimationFrame(step);
+    else el.textContent = prefix + (isFloat ? target.toFixed(2) : String(Math.round(target)).padStart(2,'0')) + suffix;
+  };
+  requestAnimationFrame(step);
+}
+
+function animateStatCards() {
+  document.querySelectorAll('.stat-card').forEach(card => {
+    const val = card.querySelector('.stat-value');
+    if(!val || val.dataset.animated) return;
+    const txt = val.textContent.trim();
+    const num = parseFloat(txt.replace(/[^0-9.]/g,''));
+    if(isNaN(num) || num === 0) return;
+    val.dataset.animated = '1';
+    countUp(val, num, 700);
+  });
 }
 
 function renderOverview(){
@@ -6202,6 +6236,39 @@ function renderIndkob(){
   tbody.innerHTML=html;
 }
 
+async function aiReorderSuggestion() {
+  const low = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
+  if(!low.length){ toast('Ingen varer under minimum — ingen forslag nødvendige'); return; }
+  toast('✦ AI analyserer lager og forbrug…');
+  const lines = low.map(i=>{
+    const need = parseInt(i.minQty||0)-parseInt(i.qty||0);
+    const hist = histEntries.filter(h=>h.item_id===i.id).slice(0,10);
+    const avgUsage = hist.length > 1
+      ? Math.abs(hist.slice(0,-1).reduce((s,h,idx)=>s+(parseInt(hist[idx].to_qty||0)-parseInt(h.to_qty||0)),0)/Math.max(hist.length-1,1))
+      : null;
+    return `${i.name}${i.sku?' ('+i.sku+')':''}: ${i.qty}/${i.minQty} stk. Mangler ${need}. Leveringstid: ${i.leadDays||'?'} dage.${avgUsage!==null?' Gns. forbrug: ~'+Math.round(Math.abs(avgUsage))+' stk/bevægelse.':''}`;
+  }).join('\n');
+  try {
+    const res = await jsonpShip({
+      action:'claudeProxy',
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:800,
+      system:'Du er en lagerekspert. Lav et præcist og praktisk genbestillingsforslag. Skriv på dansk. Vær konkret og brug tal. Hold det kort.',
+      messages:[{role:'user',content:`Analyser disse varer under minimum og lav et prioriteret genbestillingsforslag med anbefalede mængder:\n\n${lines}\n\nAntal forsendelser denne måned: ${allShips.filter(s=>{const d=new Date(s.created_at||0);const n=new Date();return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();}).length}`}]
+    },25000);
+    if(res.type==='error'||res.error) throw new Error(res.error?.message||res.error||'Fejl');
+    const reply=(res.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+    document.getElementById('modal-box').innerHTML=`
+      <div class="modal-head"><div class="modal-title">✦ AI Genbestillingsforslag</div><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body" style="white-space:pre-wrap;font-size:13px;line-height:1.7;max-height:60vh;overflow-y:auto">${esc(reply)}</div>
+      <div class="modal-foot">
+        <button class="btn" onclick="navigator.clipboard.writeText(${JSON.stringify(reply)}).then(()=>toast('Kopieret'))">📋 Kopier</button>
+        <button class="btn btn-primary" onclick="closeModal()">Luk</button>
+      </div>`;
+    openModal();
+  } catch(e) { toast('Fejl: '+e.message); }
+}
+
 function copyShoppingList(){
   const low=items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0));
   if(!low.length){ toast('Ingen varer mangler'); return; }
@@ -7599,6 +7666,12 @@ async function qsSet(itemId){
     await loadAll();
     showUndoToast(`${it.name}: ${origQty} → ${newQty}`);
   } catch(e){ sync('err','Fejl'); showErr(e.message); }
+}
+// ── PWA SERVICE WORKER ──
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/lager/sw.js').catch(()=>{});
+  });
 }
 </script>
 
