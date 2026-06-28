@@ -2046,11 +2046,21 @@ async function jsonp(params, timeoutMs=12000){
       signal:ctrl.signal
     });
     if(!r.ok) throw new Error('HTTP '+r.status);
-    return await r.json();
+    const d = await r.json();
+    if(d && d.error === 'TOKEN_EXPIRED') { forceRelogin(); return d; }
+    return d;
   } catch(e) {
     if(e.name==='AbortError') throw new Error('Timeout — tjek Apps Script URL og deployment');
     throw new Error('Kunne ikke nå server — tjek deployment er sat til "Alle": '+e.message);
   } finally { clearTimeout(timer); }
+}
+
+function forceRelogin() {
+  sessionStorage.removeItem('lager_auth');
+  sessionStorage.removeItem('lager_token');
+  localStorage.removeItem('lager_device_trust');
+  toast('Din session er udløbet — log ind igen');
+  setTimeout(() => location.reload(), 1800);
 }
 
 async function loadAll(quiet){
@@ -3078,7 +3088,9 @@ async function jsonpShip(params, timeoutMs=15000){
       signal:ctrl.signal
     });
     if(!r.ok) throw new Error('HTTP '+r.status);
-    return await r.json();
+    const d = await r.json();
+    if(d && d.error === 'TOKEN_EXPIRED') { forceRelogin(); return d; }
+    return d;
   } catch(e) {
     if(e.name==='AbortError') throw new Error('Timeout');
     throw new Error('Script fejl: '+e.message);
@@ -4255,14 +4267,16 @@ async function doLogin() {
     if (res && res.token) {
       completeLogin(res.token);
     } else if (res && res.step2) {
-      // Tjek om denne enhed er betroet (inden for 24 timer)
+      // Tjek om denne enhed er betroet via separat device-secret (ikke hoved-token)
       try {
         const trust = JSON.parse(localStorage.getItem('lager_device_trust') || 'null');
-        if (trust && trust.token && trust.expires > Date.now()) {
-          completeLogin(trust.token);
-          return;
+        if (trust && trust.secret && trust.expires > Date.now()) {
+          const tr = await jsonpShip({ action:'verifyDeviceTrust', deviceSecret: trust.secret });
+          if (tr && tr.token) { completeLogin(tr.token); return; }
+          // Device trust udløbet/ugyldig — ryd og vis TOTP
+          localStorage.removeItem('lager_device_trust');
         }
-      } catch(e) {}
+      } catch(e) { localStorage.removeItem('lager_device_trust'); }
       _loginHash = hash;
       document.getElementById('login-step-pw').style.display = 'none';
       document.getElementById('login-step-totp').style.display = 'block';
@@ -4298,7 +4312,10 @@ async function doVerifyTOTP() {
   try {
     const res = await jsonpShip({ action:'verifyStep2', hash: _loginHash, code });
     if(res && res.token){
-      try { localStorage.setItem('lager_device_trust', JSON.stringify({token:res.token, expires:Date.now()+86400000})); } catch(e){}
+      // Gem device-secret (ikke hoved-token) til 24-timers betroet-enhed
+      if(res.deviceSecret) {
+        try { localStorage.setItem('lager_device_trust', JSON.stringify({secret:res.deviceSecret, expires:Date.now()+86400000})); } catch(e){}
+      }
       completeLogin(res.token);
     } else {
       err.textContent = res?.error || 'Forkert kode';
@@ -4577,8 +4594,11 @@ function searchCmdk(q){
   document.getElementById('cmdk-results').innerHTML=html;
 }
 
-function doLogout() {
+async function doLogout() {
   if(!confirm('Log ud af lagersystemet?')) return;
+
+  // Invalider token server-side (alle sessioner ugyldiggøres)
+  try { await jsonpShip({ action:'serverLogout' }); } catch(e) {}
 
   // Ryd session
   sessionStorage.removeItem('lager_auth');
