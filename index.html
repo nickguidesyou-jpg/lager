@@ -3886,7 +3886,9 @@ async function generatePartnerReport() {
     if(itemColors.length > 0) {
       if(!itemColors.every(c => (bestSn||'').includes(c))) return { found: false };
     }
-    return { found: true, outofstock: bestEntry.outofstock||false, price: bestEntry.price };
+    // Udsolgt kræver høj match-konfidens (≥0.85) — lav score = sandsynligvis en variant-mismatch
+    const outofstock = bestScore >= 0.85 ? (bestEntry.outofstock||false) : false;
+    return { found: true, outofstock, price: bestEntry.price };
   }
 
   // Kategoriser lager-varer
