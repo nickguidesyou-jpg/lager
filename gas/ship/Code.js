@@ -475,7 +475,7 @@ function getProducts(p) {
 
 function getSesuPrices(forceRefresh) {
   var cache = CacheService.getScriptCache();
-  var KEY = 'sesu_prices_v8';
+  var KEY = 'sesu_prices_v9';
   if (!forceRefresh) {
     var cached = cache.get(KEY);
     if (cached) return JSON.parse(cached);
@@ -505,7 +505,8 @@ function getSesuPrices(forceRefresh) {
       var mSku   = chunk.match(/&quot;sku&quot;:&quot;([^&]*)&quot;/);
       var mPrice = chunk.match(/&quot;price&quot;:([0-9.]+)/);
       var mName  = chunk.match(/&quot;item_name&quot;:&quot;([^&]*)&quot;/);
-      var mUrl   = chunk.match(/href="(https:\/\/sesu\.dk\/[^"]+)"/);
+      // Product permalink: exclude shop, category, tag, page paths
+      var mUrl = chunk.match(/href="(https:\/\/sesu\.dk\/(?!shop\/|product-category\/|produktkategori\/|tag\/|page\/)[^"?#]{5,}\/?)"/);
       if (!mSku) continue;
       var sku   = mSku[1].trim();
       var price = mPrice ? parseFloat(mPrice[1]) : null;
@@ -542,11 +543,18 @@ function getSesuPrices(forceRefresh) {
     var responses = UrlFetchApp.fetchAll(reqs);
     for (var ri = 0; ri < responses.length; ri++) {
       var sku2 = toVerify[ri];
-      var body = responses[ri].getResponseCode() === 200 ? responses[ri].getContentText() : '';
-      var isInStock = body.indexOf('"InStock"') !== -1
-                   || body.indexOf('schema.org/InStock') !== -1
-                   || body.indexOf('&quot;InStock&quot;') !== -1;
-      if (isInStock) products[sku2].outofstock = false;
+      var resp2 = responses[ri];
+      if (resp2.getResponseCode() !== 200) continue;
+      var body = resp2.getContentText();
+      // Multiple WooCommerce in-stock signals
+      var isInStock = body.indexOf('schema.org/InStock') !== -1   // JSON-LD http or https
+                   || body.indexOf('"InStock"') !== -1             // JSON-LD shorthand
+                   || body.indexOf('single_add_to_cart_button') !== -1  // add-to-cart present
+                   || body.indexOf('class="stock in-stock"') !== -1;    // WC stock span
+      var isOutOfStock = body.indexOf('schema.org/OutOfStock') !== -1
+                      || body.indexOf('"OutOfStock"') !== -1
+                      || body.indexOf('class="stock out-of-stock"') !== -1;
+      if (isInStock && !isOutOfStock) products[sku2].outofstock = false;
     }
   }
 
