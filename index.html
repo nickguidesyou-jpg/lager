@@ -3856,18 +3856,45 @@ async function generatePartnerReport() {
   const sesuBySku = {};
   sesuProducts.forEach(p => { sesuBySku[p.sku] = p; });
 
+  // Strengere match til rapport: kræver at ALLE ikke-trivielle ord i vare-navnet
+  // også findes i sesu-produktets navn. Forhindrer "brush rose gold" → "gold"-match.
+  function matchForReport(item) {
+    const sku = (item.sku||'').trim();
+    if(sku && sesuPrices[sku] !== undefined) {
+      const p = sesuProducts.find(p => p.sku === sku);
+      return { found: true, outofstock: p?.outofstock||false, price: sesuPrices[sku] };
+    }
+    const nn = normName(item.name);
+    if(!nn) return { found: false };
+    const SKIP = new Set(['og','en','et','af','til','med','fra','for','cm','mm','a','stk','og']);
+    const itemWords = nn.split(' ').filter(w => w.length > 2 && !SKIP.has(w));
+    const itemCat = productCategory(item.name);
+    let bestScore = 0, bestEntry = null, bestSn = null;
+    for(const sn in sesuByName){
+      if(itemCat !== 'other' && productCategory(sesuByName[sn].name) !== itemCat) continue;
+      const score = sn === nn ? 1 : wordScore(nn, sn);
+      if(score > bestScore){ bestScore = score; bestEntry = sesuByName[sn]; bestSn = sn; }
+    }
+    if(bestScore < 0.28 || !bestEntry) return { found: false };
+    // Afvis hvis 2+ unikke ord fra varenavn mangler i sesu-match → sandsynligvis anden variant
+    const sesuWords = new Set((bestSn||'').split(' '));
+    const missing = itemWords.filter(w => !sesuWords.has(w));
+    if(missing.length >= 2) return { found: false };
+    return { found: true, outofstock: bestEntry.outofstock||false, price: bestEntry.price };
+  }
+
   // Kategoriser lager-varer
   const inStock = items.filter(i => parseInt(i.qty||0) > 0);
   const udsolgt = [], ikkeTilSalg = [], aktiv = [];
 
   inStock.forEach(i => {
-    const match = findSesuPrice(i.name, i.sku, i.imageUrl||'');
-    if(!match) {
+    const m = matchForReport(i);
+    if(!m.found) {
       ikkeTilSalg.push(i);
-    } else if(match.outofstock) {
-      udsolgt.push({ item: i, sesu: match });
+    } else if(m.outofstock) {
+      udsolgt.push({ item: i, sesu: m });
     } else {
-      aktiv.push({ item: i, sesu: match });
+      aktiv.push({ item: i, sesu: m });
     }
   });
 
@@ -3875,8 +3902,8 @@ async function generatePartnerReport() {
   const bordben = inStock
     .filter(i => (i.cat||'').toLowerCase().includes('bordben') || (i.name||'').toLowerCase().includes('bordben'))
     .map(i => {
-      const match = findSesuPrice(i.name, i.sku, i.imageUrl||'');
-      const salgspris = match ? match.price : null;
+      const match = matchForReport(i);
+      const salgspris = match.found ? match.price : null;
       const kostpris  = parseFloat(i.costPrice||0) || null;
       const qty = parseInt(i.qty||0);
       const lagervaerdi = kostpris ? kostpris*qty : salgspris ? salgspris*qty : null;
