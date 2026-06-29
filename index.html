@@ -3434,8 +3434,8 @@ async function printLabel(id){
     <div class="modal-body">
       <div class="fg"><label>Label format</label>
         <select id="pl-fmt">
+          <option value="10x19_pdf" selected>10×19 PDF (Zebra)</option>
           <option value="a4_pdf">A4 PDF</option>
-          <option value="10x19_pdf">10×19 PDF</option>
         </select>
       </div>
       <div style="font-size:12px;color:var(--ink-3);margin-top:4px;line-height:1.6">
@@ -3469,10 +3469,21 @@ async function doPrintLabel(id){
     const blob = new Blob([bytes], {type:'application/pdf'});
     const blobUrl = URL.createObjectURL(blob);
     if(win && !win.closed){
-      win.location.href = blobUrl;
-      toast('Label åbnet — tryk ⌘P i det nye vindue for at printe');
+      // Skriv HTML med PDF embedded direkte i vinduet (samme origin = print() virker)
+      const dataUri = 'data:application/pdf;base64,' + d.label_b64;
+      win.document.open();
+      win.document.write('<!DOCTYPE html><html><head><title>Label ' + id + '</title>' +
+        '<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100vw;height:100vh;overflow:hidden;background:#222}' +
+        'embed{width:100%;height:100%;display:block}' +
+        '@media print{body{background:#fff}}' +
+        '</style></head><body>' +
+        '<embed src="' + dataUri + '" type="application/pdf" width="100%" height="100%">' +
+        '</body></html>');
+      win.document.close();
+      toast('Label klar — printer åbner…');
+      setTimeout(() => { try { win.print(); } catch(e) { toast('Tryk ⌘P i label-vinduet for at printe'); } }, 1200);
     } else {
-      // Vinduet blev lukket eller blokeret — download i stedet
+      // Vinduet blev blokeret — download i stedet
       const a = document.createElement('a'); a.href=blobUrl; a.download=`label-${id}.pdf`; document.body.appendChild(a); a.click(); a.remove();
       toast('Label downloadet — åbn filen og print');
     }
