@@ -3921,12 +3921,25 @@ async function generatePartnerReport() {
   const tableOpen = (cols) => `<table style="width:100%;border-collapse:collapse;margin-bottom:32px"><thead><tr>${cols.map(c=>`<th style="${thStyle}">${c}</th>`).join('')}</tr></thead><tbody>`;
   const tableClose = '</tbody></table>';
 
+  // Beregn total lagerværdi
+  const totalLv = inStock.reduce((sum, i) => {
+    const kostpris = parseFloat(i.costPrice||0)||null;
+    const m = matchForReport(i);
+    const salgspris = m.found ? m.price : null;
+    const qty = parseInt(i.qty||0);
+    const lv = kostpris ? kostpris*qty : salgspris ? salgspris*qty : 0;
+    return sum + lv;
+  }, 0);
+
+  // Adgangskode (simpel hash for at undgå klartekst i HTML-source)
+  const _ph = btoa('dpt68uwe!');
+
   const html = `<!DOCTYPE html><html lang="da"><head><meta charset="UTF-8">
 <title>SESU Lagerstatus — ${today}</title>
 <style>
-  body { font-family: -apple-system, 'Helvetica Neue', sans-serif; color: #1a1a1a; margin: 0; padding: 40px; max-width: 900px; margin: 0 auto; }
+  body { font-family: -apple-system, 'Helvetica Neue', sans-serif; color: #1a1a1a; margin: 0; padding: 40px; max-width: 960px; margin: 0 auto; }
   h1 { font-size: 26px; font-weight: 700; margin: 0 0 4px; }
-  .meta { font-size: 13px; color: #888; margin-bottom: 40px; }
+  .meta { font-size: 13px; color: #888; margin-bottom: 24px; }
   h2 { font-size: 16px; font-weight: 700; margin: 40px 0 6px; padding-bottom: 8px; border-bottom: 2px solid #222; }
   h2 .badge { font-size: 12px; font-weight: 600; background: #f0f0f0; color: #555; border-radius: 20px; padding: 2px 10px; margin-left: 8px; vertical-align: middle; }
   .desc { font-size: 12px; color: #888; margin-bottom: 16px; }
@@ -3934,19 +3947,59 @@ async function generatePartnerReport() {
   .num { font-family: 'Courier New', monospace; font-weight: 600; text-align: right; }
   .empty { color: #aaa; font-size: 13px; padding: 20px; text-align: center; background: #fafafa; border-radius: 8px; }
   .rank { color: #bbb; font-family: monospace; width: 32px; }
+  .kpi-row { display:flex; gap:16px; margin-bottom:36px; flex-wrap:wrap; }
+  .kpi { flex:1; min-width:160px; background:#f8f8f8; border-radius:10px; padding:16px 20px; border:1px solid #e8e8e8; }
+  .kpi-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:#999; margin-bottom:6px; }
+  .kpi-value { font-size:22px; font-weight:700; font-family:'Courier New',monospace; color:#1a1a1a; }
+  .kpi.highlight { background:#1a1a1a; border-color:#1a1a1a; }
+  .kpi.highlight .kpi-label { color:#888; }
+  .kpi.highlight .kpi-value { color:#fff; }
   @media print {
     body { padding: 20px; }
     h2 { break-before: auto; }
     table { break-inside: avoid; }
+    .kpi-row { break-inside: avoid; }
   }
   .print-btn { position:fixed; top:20px; right:20px; background:#222; color:#fff; border:none; padding:10px 18px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
   .print-btn:hover { background:#444; }
   @media print { .print-btn { display:none; } }
+  #gate { position:fixed;inset:0;background:#fff;z-index:999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px; }
+  #gate input { font-size:16px;padding:10px 16px;border:2px solid #ddd;border-radius:8px;width:220px;text-align:center;font-family:inherit;outline:none; }
+  #gate input:focus { border-color:#222; }
+  #gate button { background:#222;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit; }
+  #gate .gate-err { color:#c00;font-size:12px;min-height:16px; }
+  #gate h2 { margin:0;font-size:18px; }
 </style>
 </head><body>
+<div id="gate">
+  <h2>SESU Lagerstatus</h2>
+  <div style="font-size:13px;color:#888">Indtast adgangskode for at se rapporten</div>
+  <input type="password" id="pw-inp" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkPw()">
+  <button onclick="checkPw()">Åbn rapport</button>
+  <div class="gate-err" id="pw-err"></div>
+</div>
+<div id="report" style="display:none">
 <button class="print-btn" onclick="window.print()">🖨 Print rapport</button>
 <h1>SESU Lagerstatus</h1>
-<div class="meta">Genereret: ${today} · ${inStock.length} varer på lager · sammenlignet med sesu.dk</div>
+<div class="meta">Genereret: ${today} · sammenlignet med sesu.dk</div>
+<div class="kpi-row">
+  <div class="kpi highlight">
+    <div class="kpi-label">Samlet lagerværdi</div>
+    <div class="kpi-value">${Math.round(totalLv).toLocaleString('da-DK')} kr.</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Varer på lager</div>
+    <div class="kpi-value">${inStock.length}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Udsolgt på sesu.dk</div>
+    <div class="kpi-value">${udsolgt.length}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Ikke til salg på sesu.dk</div>
+    <div class="kpi-value">${ikkeTilSalg.length}</div>
+  </div>
+</div>
 
 <h2>Udsolgt på sesu.dk <span class="badge">${udsolgt.length}</span></h2>
 <div class="desc">Vi har disse varer på lager, men de vises som udsolgt på websiden — potentielle muligheder for hurtig genopfyldning.</div>
@@ -4006,6 +4059,23 @@ ${(()=>{
     </tr>`).join('') + tableClose;
 })()}
 
+</div>
+<script>
+(function(){
+  var ph='${_ph}';
+  document.getElementById('pw-inp').focus();
+  if(sessionStorage.getItem('r_ok')==='1'){unlock();}
+  function unlock(){
+    document.getElementById('gate').style.display='none';
+    document.getElementById('report').style.display='';
+  }
+  window.checkPw=function(){
+    var v=document.getElementById('pw-inp').value;
+    if(btoa(v)===ph){sessionStorage.setItem('r_ok','1');unlock();}
+    else{document.getElementById('pw-err').textContent='Forkert adgangskode';document.getElementById('pw-inp').value='';document.getElementById('pw-inp').focus();}
+  };
+})();
+</script>
 </body></html>`;
 
   win.document.open();
