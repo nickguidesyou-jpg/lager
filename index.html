@@ -3982,6 +3982,30 @@ ${bordben.length ? tableOpen(['#','Varenavn','Antal','Salgspris','Lagerværdi'])
   </tr>`).join('') + tableClose
 : '<div class="empty">Ingen bordben fundet — tjek at kategori hedder Bordben</div>'}
 
+<h2>Top 5 — højest lagerværdi <span class="badge">alle varer</span></h2>
+<div class="desc">De 5 varenumre med den største samlede lagerværdi på tværs af hele lageret.</div>
+${(()=>{
+  const top5 = inStock.map(i => {
+    const kostpris = parseFloat(i.costPrice||0)||null;
+    const m = matchForReport(i);
+    const salgspris = m.found ? m.price : null;
+    const qty = parseInt(i.qty||0);
+    const lv = kostpris ? kostpris*qty : salgspris ? salgspris*qty : null;
+    return { item: i, qty, salgspris, kostpris, lv };
+  }).filter(x => x.lv > 0).sort((a,b) => b.lv - a.lv).slice(0,5);
+  if(!top5.length) return '<div class="empty">Ingen varer med beregnet lagerværdi</div>';
+  return tableOpen(['#','Varenavn','Kategori','Antal','Kostpris/stk','Salgspris/stk','Lagerværdi']) +
+    top5.map(({item,qty,salgspris,kostpris,lv},idx) => `<tr>
+      <td style="${rowStyle}" class="rank">${idx+1}.</td>
+      <td style="${rowStyle}"><strong>${esc2(item.name)}</strong><div style="font-size:11px;color:#999;margin-top:2px">${esc2(item.sku||'')}</div></td>
+      <td style="${rowStyle};color:#666">${esc2(item.cat||'—')}</td>
+      <td style="${rowStyle}" class="num">${qty.toLocaleString('da-DK')}</td>
+      <td style="${rowStyle}" class="num">${kr(kostpris)}</td>
+      <td style="${rowStyle}" class="num">${kr(salgspris)}</td>
+      <td style="${rowStyle};color:#1a5fa8;font-weight:700" class="num">${kr(lv)}</td>
+    </tr>`).join('') + tableClose;
+})()}
+
 </body></html>`;
 
   win.document.open();
