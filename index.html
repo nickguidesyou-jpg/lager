@@ -3453,31 +3453,31 @@ async function printLabel(id){
 async function doPrintLabel(id){
   const fmt = document.getElementById('pl-fmt')?.value || 'a4_pdf';
   closeModal();
+  // Åbn vindue STRAKS mens bruger-gesture er aktiv — Safari blokerer popup hvis vi venter på fetch
+  const win = window.open('', '_blank');
+  if(win) win.document.write('<html><body style="margin:0;background:#111;color:#fff;font:16px/1.5 sans-serif;display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center;opacity:.6">Henter label…</div></body></html>');
   toast('Henter label fra Shipmondo…');
   try {
     const d = await jsonpShip({ action:'getLabel', id, format: fmt });
-    if(!d.label_b64) { alert(d.error ? 'Fejl: ' + d.error : 'Ingen label — forsendelsen har muligvis ikke en label endnu'); return; }
-
+    if(!d.label_b64){
+      if(win) win.close();
+      alert(d.error ? 'Fejl: ' + d.error : 'Ingen label — forsendelsen har muligvis ikke en label endnu'); return;
+    }
     const byteChars = atob(d.label_b64);
     const bytes = new Uint8Array(byteChars.length);
     for(let i=0;i<byteChars.length;i++) bytes[i]=byteChars.charCodeAt(i);
     const blob = new Blob([bytes], {type:'application/pdf'});
     const blobUrl = URL.createObjectURL(blob);
-
-    // Iframe-trick: indlæs PDF og trigger print-dialog automatisk
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none';
-    iframe.src = blobUrl;
-    document.body.appendChild(iframe);
-    iframe.onload = () => {
-      try { iframe.contentWindow.print(); } catch(e) {
-        // Safari fallback: åbn i ny fane
-        window.open(blobUrl, '_blank');
-      }
-      setTimeout(() => { iframe.remove(); URL.revokeObjectURL(blobUrl); }, 60000);
-    };
-    toast('Print-dialog åbner…');
-  } catch(e) { alert('Fejl: '+e.message); }
+    if(win && !win.closed){
+      win.location.href = blobUrl;
+      toast('Label åbnet — tryk ⌘P i det nye vindue for at printe');
+    } else {
+      // Vinduet blev lukket eller blokeret — download i stedet
+      const a = document.createElement('a'); a.href=blobUrl; a.download=`label-${id}.pdf`; document.body.appendChild(a); a.click(); a.remove();
+      toast('Label downloadet — åbn filen og print');
+    }
+    setTimeout(()=>URL.revokeObjectURL(blobUrl), 120000);
+  } catch(e){ if(win) win.close(); alert('Fejl: '+e.message); }
 }
 
 async function openNewShipmentModal(){
