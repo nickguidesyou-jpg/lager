@@ -1252,6 +1252,42 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   background: var(--red-dim); color: var(--red);
   font-family: 'IBM Plex Mono', monospace;
 }
+/* ── COMPACT DENSITY ── */
+body.compact tbody td { padding: 7px 12px !important; }
+body.compact thead th { padding: 6px 12px !important; }
+body.compact .stat-card { padding: 14px 18px; }
+body.compact .stat-value { font-size: 24px !important; letter-spacing: -1px !important; }
+body.compact .list-row { padding: 8px 16px; }
+body.compact .low-row { padding: 8px 16px; }
+
+/* ── SKELETON ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border-light) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+  display: inline-block;
+}
+@keyframes skeletonShimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── SORTABLE HEADERS ── */
+.th-sort { cursor: pointer; user-select: none; }
+.th-sort:hover { color: var(--ink-2); }
+.sort-arrow { font-size: 9px; opacity: .5; margin-left: 2px; }
+
+/* ── SHAKE ANIMATION ── */
+@keyframes modalShake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-7px); }
+  40%      { transform: translateX(7px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(4px); }
+}
+.modal.shake { animation: modalShake .35s ease; }
+
 /* ── PRINT INDKØBSLISTE ── */
 @media print {
   .sidebar, .mobile-nav, .topbar, .ai-fab, .ai-panel, #cmdk-overlay, .no-print { display:none !important; }
@@ -1541,6 +1577,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
           <button class="btn btn-ghost btn-sm" onclick="openBatchQR()" title="Print QR-koder for alle varer">🖨 QR-print</button>
           <button class="btn btn-ghost btn-sm" onclick="exportVarerCSV()" title="Eksporter vareliste til CSV">⬇ CSV</button>
           <button class="btn btn-ghost btn-sm" onclick="openImportModal()" title="Importer varer fra CSV">⬆ Importer</button>
+          <button class="btn btn-ghost btn-sm" id="density-btn" onclick="toggleDensity()" title="Kompakt/komfortabel visning">⊟ Kompakt</button>
           <button class="btn btn-ghost btn-sm" onclick="openCatModal()" title="Rediger kategorier">⚙ Kategorier</button>
           <button class="btn btn-ghost btn-sm" id="sesu-btn" onclick="loadSesuPrices()" title="Hent aktuelle priser fra sesu.dk" style="white-space:nowrap">⟳ sesu.dk priser <span id="sesu-status" style="font-size:10px;color:var(--ink-3)"></span></button>
         </div>
@@ -1556,10 +1593,10 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
             <table>
               <thead><tr>
                 <th style="width:3%"><input type="checkbox" id="check-all" onchange="toggleAllCheck(this)" class="row-check"></th>
-                <th style="width:22%">Varenavn</th>
-                <th style="width:11%" class="hide-sm">Kategori</th>
-                <th style="width:17%" class="hide-sm">Placering</th>
-                <th style="width:7%">Antal</th>
+                <th style="width:22%" class="th-sort" onclick="setItemSort('name')">Varenavn <span class="sort-arrow" id="sa-name"></span></th>
+                <th style="width:11%" class="hide-sm th-sort" onclick="setItemSort('cat')">Kategori <span class="sort-arrow" id="sa-cat"></span></th>
+                <th style="width:17%" class="hide-sm th-sort" onclick="setItemSort('loc')">Placering <span class="sort-arrow" id="sa-loc"></span></th>
+                <th style="width:7%" class="th-sort" onclick="setItemSort('qty')">Antal <span class="sort-arrow" id="sa-qty"></span></th>
                 <th style="width:7%">Min.</th>
                 <th style="width:10%" class="hide-sm">Pris (sesu.dk)</th>
                 <th style="width:7%" class="hide-sm">Margin</th>
@@ -2054,7 +2091,7 @@ tbody tr:hover td { background: var(--surface); transition: background .08s; }
   </div>
 </div>
 
-<div class="modal-bg" id="mb" onclick="if(event.target===this)closeModal()">
+<div class="modal-bg" id="mb" onclick="if(event.target===this){if(modalDirty){const b=document.getElementById('modal-box');b.classList.add('shake');setTimeout(()=>b.classList.remove('shake'),400);toast('Gem ændringer eller klik × for at lukke');return;}closeModal()}">
   <div class="modal" id="modal-box"></div>
 </div>
 <div id="img-zoom-bg" onclick="closeImgZoom()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;backdrop-filter:blur(4px)">
@@ -2582,18 +2619,32 @@ function renderOverview(){
 
 function renderItems(){
   const q = (document.getElementById('search').value||'').toLowerCase();
+  try { localStorage.setItem('lager_varer_search', q); localStorage.setItem('lager_varer_cat', activeCat); } catch(e) {}
   document.getElementById('filter-chips').innerHTML = ['Alle',...CATS].map(c=>`
     <button class="chip${activeCat===c?' active':''}" onclick="activeCat='${c}';renderItems()">${c}</button>`).join('');
+
+  // Update sort arrows
+  ['name','cat','loc','qty'].forEach(col => {
+    const el = document.getElementById('sa-'+col);
+    if(el) el.textContent = itemSort.col===col ? (itemSort.dir===1?'↑':'↓') : '';
+  });
 
   const fil = items.filter(i=>{
     const r = rooms.find(r=>r.id===i.room);
     const ms = !q || [i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
     return ms && (activeCat==='Alle'||i.cat===activeCat);
   }).sort((a,b)=>{
-    // Primær: kategori (CATS-rækkefølge), sekundær: navn
-    const ai=CATS.indexOf(a.cat), bi=CATS.indexOf(b.cat);
-    const catSort=(ai===-1?999:ai)-(bi===-1?999:bi);
-    return catSort!==0 ? catSort : (a.name||'').localeCompare(b.name||'','da');
+    const d = itemSort.dir;
+    switch(itemSort.col){
+      case 'name': return d*(a.name||'').localeCompare(b.name||'','da');
+      case 'loc':  return d*(a.shelf||'').localeCompare(b.shelf||'','da');
+      case 'qty':  return d*(parseInt(a.qty||0)-parseInt(b.qty||0));
+      default: { // 'cat' — primær: kategori-rækkefølge, sekundær: navn
+        const ai=CATS.indexOf(a.cat), bi=CATS.indexOf(b.cat);
+        const cs=d*((ai===-1?999:ai)-(bi===-1?999:bi));
+        return cs!==0 ? cs : (a.name||'').localeCompare(b.name||'','da');
+      }
+    }
   });
   const tb = document.getElementById('items-tbody'), em = document.getElementById('items-empty');
   if(!fil.length){ tb.innerHTML=''; em.style.display=''; const ca=document.getElementById('check-all'); if(ca) ca.checked=false;
@@ -2642,7 +2693,7 @@ function renderItems(){
           : `<div class="td-sub" style="color:${bestilOm<=7?'var(--red)':bestilOm<=30?'var(--amber)':'var(--green)'}">bestil om ${bestilOm}d</div>`)
         : `<div class="td-sub" style="color:${dd<7?'var(--red)':dd<30?'var(--amber)':'var(--green)'}">~${Math.round(dd)}d</div>`;
     const abcClass = abcMap[i.id] || null;
-    return `<tr data-id="${i.id}">
+    return `<tr data-id="${i.id}" ondblclick="openItemModal('${i.id}',null)" style="cursor:default">
       <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
       <td style="display:flex;align-items:center;gap:10px">
         ${imgUrl?`<img src="${esc(imgUrl)}" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border-light);flex-shrink:0;cursor:zoom-in" loading="lazy" onerror="this.style.display='none'" onclick="openImgZoom('${esc(imgUrl)}')">`:''}
@@ -2673,7 +2724,7 @@ function renderItems(){
           ${sesuUrl ? `<button class="btn btn-ghost btn-sm" onclick="showSesuQR('${encodeURIComponent(sesuUrl)}','${esc(i.name)}')" title="sesu.dk QR-kode" style="font-size:11px;padding:2px 5px">🏪</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="openGrafModal('${i.id}')" title="Forbrudsgraf">📈</button>
           <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
-          <button class="btn btn-danger btn-sm" onclick="delItem('${i.id}')">Slet</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDelItem(this,'${i.id}')">Slet</button>
         </div>
       </td>
     </tr>`;
@@ -3009,8 +3060,8 @@ async function saveItem(id, edit){
   catch(e){ sync('err','Fejl'); showErr('Kunne ikke gemme: '+e.message); }
 }
 
-async function delItem(id){
-  if(!confirm('Slet denne vare fra lageret?')) return;
+async function delItem(id, skipConfirm=false){
+  if(!skipConfirm && !confirm('Slet denne vare fra lageret?')) return;
   sync('load','Sletter…');
   try { await jsonp({action:'deleteItem',id}); toast('Vare slettet'); await loadAll(); }
   catch(e){ sync('err','Fejl'); showErr(e.message); }
@@ -3072,6 +3123,12 @@ function showTab(t){
   localStorage.setItem('activeTab', t);
   window.scrollTo(0,0);
   resetInactivityTimer();
+  if(t === 'varer'){
+    const s = document.getElementById('search');
+    if(s && !s.value){ const sv=localStorage.getItem('lager_varer_search')||''; if(sv) s.value=sv; }
+    const sc=localStorage.getItem('lager_varer_cat');
+    if(sc && (sc==='Alle'||CATS.includes(sc))) activeCat=sc;
+  }
   const priceReady = loadSesuPrices();
   if(t === 'forsendelser' && !shipLoaded) priceReady.then(()=>{ if(!shipLoaded) loadShipments(); });
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
@@ -3086,8 +3143,17 @@ function showTab(t){
   if(t === 'historik' && !histLoaded) loadHistorik().catch(()=>{});
 }
 
-function openModal(){ document.getElementById('mb').classList.add('open'); resetInactivityTimer(); }
-function closeModal(){ document.getElementById('mb').classList.remove('open'); }
+function openModal(){
+  modalDirty = false;
+  const mb = document.getElementById('mb');
+  mb.classList.add('open');
+  resetInactivityTimer();
+  setTimeout(() => {
+    const box = document.getElementById('modal-box');
+    if(box) { box.addEventListener('input', ()=>{ modalDirty = true; }, { capture: true }); }
+  }, 80);
+}
+function closeModal(){ modalDirty = false; document.getElementById('mb').classList.remove('open'); }
 
 
 let tT;
@@ -4397,7 +4463,7 @@ function completeLogin(token) {
   document.getElementById('login-err').textContent = '';
   recordLogin();
   resetInactivityTimer();
-  loadAll().then(()=>checkNotifications());
+  showItemsSkeleton(); loadAll().then(()=>checkNotifications());
   loadBalance(); loadMonthlyStats(); loadMonthlyHistory();
   loadTemplates(); loadLeverandoerer();
 }
@@ -4852,6 +4918,13 @@ function toggleDark(){
 // ── KEYBOARD SHORTCUTS ──
 document.addEventListener('keydown', e => {
   if(e.key==='Escape'){
+    const mb = document.getElementById('mb');
+    if(mb && mb.classList.contains('open') && modalDirty){
+      const box = document.getElementById('modal-box');
+      if(box){ box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake'); setTimeout(()=>box.classList.remove('shake'),400); }
+      toast('Gem ændringer eller klik × for at lukke');
+      return;
+    }
     closeModal(); closeAI();
     ['pkg-modal','qr-modal'].forEach(id=>{ const m=document.getElementById(id); if(m&&m.style.display!=='none') m.style.display='none'; });
     return;
@@ -8091,6 +8164,71 @@ async function qsSet(itemId){
     showUndoToast(`${it.name}: ${origQty} → ${newQty}`);
   } catch(e){ sync('err','Fejl'); showErr(e.message); }
 }
+// ── QOL: SORT, DENSITY, INLINE DELETE, SKELETON ──
+let itemSort = { col: 'cat', dir: 1 };
+let modalDirty = false;
+
+function setItemSort(col) {
+  if(itemSort.col === col) itemSort.dir *= -1;
+  else { itemSort.col = col; itemSort.dir = 1; }
+  renderItems();
+}
+
+const _delTimers = {};
+function confirmDelItem(btn, id) {
+  if(btn.dataset.confirming) {
+    clearTimeout(_delTimers[id]);
+    delete btn.dataset.confirming;
+    delItem(id, true);
+  } else {
+    btn.dataset.confirming = '1';
+    btn.textContent = 'Sikker?';
+    btn.style.background = 'var(--red)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'transparent';
+    _delTimers[id] = setTimeout(() => {
+      if(!btn.dataset.confirming) return;
+      delete btn.dataset.confirming;
+      btn.textContent = 'Slet';
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 2500);
+  }
+}
+
+function toggleDensity() {
+  const compact = document.body.classList.toggle('compact');
+  localStorage.setItem('lager_density', compact ? 'compact' : 'comfortable');
+  const btn = document.getElementById('density-btn');
+  if(btn) btn.textContent = compact ? '⊞ Normal' : '⊟ Kompakt';
+}
+
+function showItemsSkeleton() {
+  const tb = document.getElementById('items-tbody');
+  if(!tb || tb.children.length) return;
+  const s = w => `<div class="skeleton" style="width:${w};height:12px"></div>`;
+  tb.innerHTML = Array(7).fill('').map(() => `<tr>
+    <td>${s('14px')}</td>
+    <td><div style="display:flex;align-items:center;gap:8px">${s('36px')}
+      <div>${s('55%')}<div class="skeleton" style="width:30%;height:9px;margin-top:5px"></div></div></div></td>
+    <td>${s('60px')}</td><td>${s('45%')}</td>
+    <td>${s('28px')}</td><td>${s('20px')}</td>
+    <td>${s('55px')}</td><td>${s('28px')}</td>
+    <td>${s('55px')}</td><td></td></tr>`).join('');
+}
+
+(function initQol(){
+  // Density
+  if(localStorage.getItem('lager_density') === 'compact'){
+    document.body.classList.add('compact');
+    window.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('density-btn');
+      if(btn) btn.textContent = '⊞ Normal';
+    });
+  }
+})();
+
 // ── PWA SERVICE WORKER ──
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
