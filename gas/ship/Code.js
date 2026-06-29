@@ -492,10 +492,15 @@ function getSesuPrices(forceRefresh) {
     var chunks = html.split('<li class="product');
     for (var i = 1; i < chunks.length; i++) {
       var chunk = chunks[i];
-      // Detect outofstock from li class attribute (before first >)
+      // CSS class-based detection (before first >)
       var classEnd = chunk.indexOf('>');
       var liClass = classEnd > 0 ? chunk.substring(0, classEnd) : '';
       var outofstock = liClass.indexOf('outofstock') !== -1;
+      // JSON-LD availability overrides CSS class — more reliable for variable products
+      var mInStock  = chunk.match(/&quot;availability&quot;:&quot;[^&]*InStock/i);
+      var mOutStock = chunk.match(/&quot;availability&quot;:&quot;[^&]*OutOfStock/i);
+      if (mInStock)  outofstock = false;
+      else if (mOutStock) outofstock = true;
 
       var mSku   = chunk.match(/&quot;sku&quot;:&quot;([^&]*)&quot;/);
       var mPrice = chunk.match(/&quot;price&quot;:([0-9.]+)/);

@@ -4083,6 +4083,27 @@ ${ikkeTilSalg.length ? tableOpen(['Varenavn','SKU','Kategori','Antal','∅ Pot. 
   </tr>`;}).join('') + tableClose
 : '<div class="empty">Ingen varer i denne kategori</div>'}
 
+${(()=>{
+  // Sesu.dk sælger aktivt (ikke udsolgt) men vi har ingen lagerbeholdning
+  const lagerSkuMap = {};
+  items.forEach(i => { const s=(i.sku||'').trim(); if(s) lagerSkuMap[s]=parseInt(i.qty||0); });
+  const sesuNoLager = (sesuProducts||[]).filter(p => {
+    if(p.outofstock || !p.price) return false;
+    const qty = lagerSkuMap[p.sku];
+    return qty === 0 || qty === undefined;
+  });
+  if(!sesuNoLager.length) return '';
+  return `<h2>Sesu.dk sælger — mangler på lager <span class="badge" style="background:#fde8e8;color:#c0392b">${sesuNoLager.length}</span></h2>
+<div class="desc">Disse produkter er aktive og til salg på sesu.dk men vi har 0 i lagerbeholdning — kunder kan bestille noget vi ikke har.</div>
+${tableOpen(['Varenavn','SKU','Salgspris på sesu.dk'])}
+${sesuNoLager.map(p => `<tr>
+  <td style="${rowStyle}"><strong>${esc2(p.name)}</strong></td>
+  <td style="${rowStyle};font-family:monospace;font-size:12px;color:#888">${esc2(p.sku||'—')}</td>
+  <td style="${rowStyle}" class="num" style="color:#c0392b;font-weight:700">${kr(p.price)}</td>
+</tr>`).join('')}
+${tableClose}`;
+})()}
+
 <h2>Top 10 bordben — flest på lager <span class="badge">tilbudspotentiale</span></h2>
 <div class="desc">Bordben sorteret efter lagerbeholdning — de med højest antal er oplagte kandidater til tilbud.</div>
 ${bordben.length ? tableOpen(['#','Varenavn','Antal','Salgspris','Lagerværdi']) +
