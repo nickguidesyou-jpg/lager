@@ -1719,6 +1719,7 @@ body.compact .low-row { padding: 8px 16px; }
       <div id="tab-rapporter" class="view" style="display:none">
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:20px">
           <button class="btn btn-accent btn-sm" onclick="generatePartnerReport()" title="Generer rapport til partner med lagerstatus vs. sesu.dk">📋 Partner rapport</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadSesuPrices(true).then(()=>toast('sesu.dk priser genindlæst ✓'))" title="Tving genindlæsning af sesu.dk priser (omgår cache)">↺ Genindlæs sesu.dk</button>
           <button class="btn btn-ghost btn-sm" onclick="renderRapporter(true)">⟳ Opdater</button>
         </div>
         <div id="rap-content">
@@ -2188,16 +2189,17 @@ async function loadAll(quiet){
 function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); setTimeout(animateStatCards, 50); }
 
 let _sesuPricesPromise = null;
-async function loadSesuPrices() {
-  if(sesuPricesLoaded) return;
-  if(_sesuPricesPromise) return _sesuPricesPromise;
+async function loadSesuPrices(forceRefresh) {
+  if(sesuPricesLoaded && !forceRefresh) return;
+  if(_sesuPricesPromise && !forceRefresh) return _sesuPricesPromise;
+  if(forceRefresh){ sesuPricesLoaded = false; _sesuPricesPromise = null; }
   _sesuPricesPromise = (async () => {
   const btn = document.getElementById('sesu-btn');
   const statusEl = document.getElementById('sesu-status');
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = '— henter…';
   try {
-    const d = await jsonpShipSlow({ action:'getSesuPrices' });
+    const d = await jsonpShipSlow({ action:'getSesuPrices', forceRefresh: forceRefresh ? true : undefined });
     if(d && !d.error && Object.keys(d).length > 0) {
       // d may be {sku: {price, name}} (v2) or {sku: price} (v1 cached)
       sesuPrices = {};
@@ -4004,6 +4006,32 @@ async function generatePartnerReport() {
     <div class="kpi-value">${ikkeTilSalg.length}</div>
   </div>
 </div>
+
+${(()=>{
+  const nearStockout = inStock
+    .map(i => {
+      const qty = parseInt(i.qty||0);
+      const m = matchForReport(i);
+      const kostpris = parseFloat(i.costPrice||0)||null;
+      const salgspris = m.found && !m.outofstock ? m.price : null;
+      return { item: i, qty, salgspris, kostpris };
+    })
+    .filter(x => x.qty >= 1 && x.qty <= 3 && x.salgspris != null)
+    .sort((a,b) => (b.salgspris||0) - (a.salgspris||0))
+    .slice(0,5);
+  if(!nearStockout.length) return '';
+  return `<h2>Top 5 — ved at løbe tør <span class="badge" style="background:#fff3cd;color:#856404">lav beholdning</span></h2>
+<div class="desc">Produkter med 1–3 stk. tilbage på lager, sorteret efter salgspris — overvej hurtig genbestilling.</div>
+${tableOpen(['Varenavn','SKU','Antal tilbage','Salgspris/stk','Samlet restværdi'])}
+${nearStockout.map(({item,qty,salgspris}) => `<tr>
+  <td style="${rowStyle}"><strong>${esc2(item.name)}</strong></td>
+  <td style="${rowStyle};font-family:monospace;font-size:12px;color:#888">${esc2(item.sku||'—')}</td>
+  <td style="${rowStyle};text-align:center"><span style="background:#fff3cd;color:#856404;border-radius:4px;padding:2px 8px;font-weight:700">${qty}</span></td>
+  <td style="${rowStyle}" class="num">${kr(salgspris)}</td>
+  <td style="${rowStyle}" class="num" style="color:#c57a00;font-weight:700">${kr(salgspris*qty)}</td>
+</tr>`).join('')}
+${tableClose}`;
+})()}
 
 <h2>Udsolgt på sesu.dk <span class="badge">${udsolgt.length}</span></h2>
 <div class="desc">Vi har disse varer på lager, men de vises som udsolgt på websiden — potentielle muligheder for hurtig genopfyldning.</div>
