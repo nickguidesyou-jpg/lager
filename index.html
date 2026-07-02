@@ -1552,6 +1552,8 @@ body.compact .low-row { padding: 8px 16px; }
             <div id="ov-low-low"></div>
           </div>
         </div>
+        <div id="ov-abc" style="margin-top:16px"></div>
+        <div id="ov-damaged" style="margin-top:16px"></div>
         <div class="card" style="padding:20px;margin-top:16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ink-2)">Forsendelsesværdi — seneste 30 dage</div>
           <div style="height:180px;position:relative"><canvas id="shipment-chart"></canvas></div>
@@ -2186,7 +2188,58 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); setTimeout(animateStatCards, 50); }
+
+function renderOverviewABC(){
+  const el=document.getElementById('ov-abc'); if(!el) return;
+  const abcMap=calcABC();
+  if(!Object.keys(abcMap).length){
+    el.innerHTML=''; return;
+  }
+  const aItems=items.filter(i=>abcMap[i.id]==='A');
+  const bItems=items.filter(i=>abcMap[i.id]==='B');
+  const cItems=items.filter(i=>abcMap[i.id]==='C');
+  const total=items.length;
+  const sesuVal=(cat)=>items.filter(i=>abcMap[i.id]===cat).reduce((s,i)=>{const m=findSesuPrice(i.name,i.sku);return s+(m?m.price*parseInt(i.qty||0):0);},0);
+  const aVal=sesuVal('A'), bVal=sesuVal('B'), cVal=sesuVal('C'), totVal=aVal+bVal+cVal;
+  const pct=(v)=>totVal>0?Math.round(v/totVal*100):0;
+  el.innerHTML=`<div class="card" style="padding:16px 20px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ink-2)">ABC-analyse</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:100px;background:rgba(45,130,65,.08);border-radius:var(--radius);padding:10px 14px;border:1px solid rgba(45,130,65,.15)">
+        <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.06em">A-VARER</div>
+        <div style="font-size:22px;font-weight:700;color:var(--ink);font-family:'IBM Plex Mono',monospace;margin:2px 0">${aItems.length}</div>
+        <div style="font-size:11px;color:var(--ink-3)">${pct(aVal)}% af lagerværdi</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:rgba(122,90,26,.08);border-radius:var(--radius);padding:10px 14px;border:1px solid rgba(122,90,26,.15)">
+        <div style="font-size:10px;font-weight:700;color:var(--amber);letter-spacing:.06em">B-VARER</div>
+        <div style="font-size:22px;font-weight:700;color:var(--ink);font-family:'IBM Plex Mono',monospace;margin:2px 0">${bItems.length}</div>
+        <div style="font-size:11px;color:var(--ink-3)">${pct(bVal)}% af lagerværdi</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:var(--surface-2);border-radius:var(--radius);padding:10px 14px;border:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.06em">C-VARER</div>
+        <div style="font-size:22px;font-weight:700;color:var(--ink);font-family:'IBM Plex Mono',monospace;margin:2px 0">${cItems.length}</div>
+        <div style="font-size:11px;color:var(--ink-3)">${pct(cVal)}% af lagerværdi</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--ink-3)">Baseret på bevægelseshistorik · <a href="#" onclick="showTab('rapporter');return false" style="color:var(--blue)">Se fuld analyse →</a></div>
+  </div>`;
+}
+
+function renderOverviewDamaged(){
+  const el=document.getElementById('ov-damaged'); if(!el) return;
+  const damaged=items.filter(i=>parseInt(i.damaged_qty||0)>0);
+  if(!damaged.length){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="card" style="padding:16px 20px;border-left:3px solid var(--amber)">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--amber)">⚠ Skadede varer (${damaged.length})</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${damaged.map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+        <span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="openItemModal('${i.id}',null)">${esc(i.name)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--amber)">${parseInt(i.damaged_qty)} skadet</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
 
 let _sesuPricesPromise = null;
 async function loadSesuPrices(forceRefresh) {
@@ -2399,6 +2452,21 @@ function renderOversigtsAdvarsler(){
     }
   }
 
+  // Skadede varer
+  const damaged = items.filter(i=>parseInt(i.damaged_qty||0)>0);
+  if(damaged.length){
+    parts.push(`<div style="background:var(--amber-dim);border:1px solid rgba(122,90,26,.15);border-radius:var(--radius);padding:14px 18px">
+      <div style="font-size:12px;font-weight:700;color:var(--amber);letter-spacing:.04em;text-transform:uppercase;margin-bottom:10px">⚠ ${damaged.length} vare${damaged.length===1?'':'r'} med skadede enheder</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${damaged.slice(0,5).map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+          <span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="openItemModal('${i.id}',null)">${esc(i.name)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--amber);font-size:12px">${parseInt(i.damaged_qty)} skadet</span>
+        </div>`).join('')}
+        ${damaged.length>5?`<div style="font-size:11px;color:var(--amber);opacity:.7">+${damaged.length-5} mere</div>`:''}
+      </div>
+    </div>`);
+  }
+
   el.innerHTML=parts.length?`<div style="display:flex;flex-direction:column;gap:12px">${parts.join('')}</div>`:'';
 }
 
@@ -2499,6 +2567,19 @@ function renderOverview(){
     </div>
     ${monthlyHtml}
     ${(()=>{
+      // Prioriter sale_price-baseret avance, fald tilbage på sesu-pris
+      const saleAvanceItems=items.filter(i=>i.sale_price&&parseFloat(i.sale_price)>0&&i.costPrice&&parseFloat(i.costPrice)>0).map(i=>{
+        const sp=parseFloat(i.sale_price), cp=parseFloat(i.costPrice);
+        return {pct:Math.round((sp-cp)/cp*100)};
+      });
+      if(saleAvanceItems.length){
+        const avg=Math.round(saleAvanceItems.reduce((s,i)=>s+i.pct,0)/saleAvanceItems.length);
+        return `<div class="stat-card accent" style="cursor:pointer" onclick="showTab('rapporter')" title="Baseret på din salgspris vs. indkøbspris">
+          <div class="stat-label">Gns. avance (egne priser)</div>
+          <div class="stat-value" style="font-size:26px">${avg}%</div>
+          <div class="stat-detail">${saleAvanceItems.length} varer med begge priser</div>
+        </div>`;
+      }
       if(!sesuPricesLoaded) return '';
       const marginItems=items.filter(i=>i.costPrice&&parseFloat(i.costPrice)>0).map(i=>{
         const m=findSesuPrice(i.name,i.sku); if(!m) return null;
@@ -2696,6 +2777,11 @@ function renderItems(){
           : `<div class="td-sub" style="color:${bestilOm<=7?'var(--red)':bestilOm<=30?'var(--amber)':'var(--green)'}">bestil om ${bestilOm}d</div>`)
         : `<div class="td-sub" style="color:${dd<7?'var(--red)':dd<30?'var(--amber)':'var(--green)'}">~${Math.round(dd)}d</div>`;
     const abcClass = abcMap[i.id] || null;
+    const damagedBadge = parseInt(i.damaged_qty||0)>0 ? `<span class="badge badge-red" style="margin-left:4px;font-size:9px" title="${esc(i.damaged_qty)} skadet enheder">⚠ ${esc(i.damaged_qty)} skadet</span>` : '';
+    const locationTag = i.location ? `<div class="td-sub" style="color:var(--ink-3);font-size:10px;margin-top:2px">📍 ${esc(i.location)}</div>` : '';
+    const sp = parseFloat(i.sale_price||0), cp = parseFloat(i.costPrice||0);
+    const avanceHtml = (sp>0&&cp>0) ? (()=>{const pct=Math.round((sp-cp)/cp*100); return `<div class="td-sub" style="color:${pct>30?'var(--green)':pct>15?'var(--amber)':'var(--red)'};font-weight:700">${pct}% avance</div>`;})() : '';
+    const canReorder = low && i.supplier;
     return `<tr data-id="${i.id}" ondblclick="openItemModal('${i.id}',null)" style="cursor:default">
       <td><input type="checkbox" class="row-check" ${checked} onchange="toggleCheck('${i.id}',this)"></td>
       <td style="display:flex;align-items:center;gap:10px">
@@ -2703,7 +2789,9 @@ function renderItems(){
         <div>
           <div class="td-name">${esc(i.name)}${i.bundle_json?'<span style="font-size:9px;background:rgba(99,102,241,.12);color:rgb(99,102,241);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700;vertical-align:middle">SÆT</span>':''}${i.note?`<span title="${esc(i.note)}" style="font-size:11px;margin-left:4px;cursor:help;opacity:.6">📝</span>`:''}${abcClass?`<span class="abc-badge abc-${abcClass.toLowerCase()}">${abcClass}</span>`:''}</div>
           ${i.sku?`<div class="td-sub">${esc(i.sku)}</div>`:''}
+          ${locationTag}
           ${bundleCap!==null?`<div class="td-sub">Kan fremstille: <strong>${bundleCap}</strong> sæt</div>`:''}
+          ${avanceHtml}
         </div>
       </td>
       <td>${catBadge(i.cat)}</td>
@@ -2714,18 +2802,20 @@ function renderItems(){
       <td class="qty-cell" onclick="inlineEditQty(this,'${i.id}')" title="Klik for at redigere antal" style="cursor:pointer">
         <span class="qty-val" style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:${low?'var(--red)':'var(--ink)'}">${esc(i.qty)}</span>
         ${low?'<span class="badge badge-red" style="margin-left:4px;font-size:9px">LAV</span>':''}
+        ${damagedBadge}
         ${reserved>0?`<div class="td-sub">${disponibel} dis. · ${reserved} res.</div>`:''}
         ${ddHtml}
       </td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${i.minQty}</td>
       ${priceCell}
-      ${(()=>{ const cost=parseFloat(i.costPrice||0); const sell=unitPrice; if(!cost||!sell) return '<td class="hide-sm" style="color:var(--ink-3);font-size:11px">—</td>'; const pct=Math.round((sell-cost)/sell*100); return `<td class="hide-sm"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:${pct>30?'var(--green)':pct>15?'var(--amber)':'var(--red)'}">${pct}%</span></td>`; })()}
+      ${(()=>{ const cost=parseFloat(i.costPrice||0); const sell=parseFloat(i.sale_price||0)||unitPrice; if(!cost||!sell) return '<td class="hide-sm" style="color:var(--ink-3);font-size:11px">—</td>'; const pct=Math.round((sell-cost)/sell*100); return `<td class="hide-sm"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:${pct>30?'var(--green)':pct>15?'var(--amber)':'var(--red)'}">${pct}%</span></td>`; })()}
       ${valueCell}
       <td>
         <div class="td-actions">
           <button class="btn btn-ghost btn-sm" onclick="showQR('${i.id}')" title="QR-kode">⊞</button>
           ${sesuUrl ? `<button class="btn btn-ghost btn-sm" onclick="showSesuQR('${encodeURIComponent(sesuUrl)}','${esc(i.name)}')" title="sesu.dk QR-kode" style="font-size:11px;padding:2px 5px">🏪</button>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="openGrafModal('${i.id}')" title="Forbrudsgraf">📈</button>
+          ${canReorder?`<button class="btn btn-ghost btn-sm" style="color:var(--amber);border-color:var(--amber)" onclick="openReorderModal('${i.id}')" title="Send genbestillingsmail til leverandør">📧 Genbestil</button>`:''}
           <button class="btn btn-ghost btn-sm" onclick="openItemModal('${i.id}',null)">Rediger</button>
           <button class="btn btn-danger btn-sm" onclick="confirmDelItem(this,'${i.id}')">Slet</button>
         </div>
@@ -2828,6 +2918,9 @@ function openItemModal(id, preRoom, tpl){
   const moq=it?it.moq||'':'';
   const reserved=it&&!isTpl?parseInt(it.reserved||0):0;
   const imageUrl=it&&!isTpl?it.imageUrl||'':'';
+  const damagedQty=it&&!isTpl?parseInt(it.damaged_qty||0):0;
+  const location=it?it.location||'':'';
+  const salePrice=it?it.sale_price||'':'';
   let bundleComps=[]; try{ if(it&&!isTpl&&it.bundle_json) bundleComps=JSON.parse(it.bundle_json); }catch(e){}
   window._bundleComps=bundleComps.slice();
   window._bundleEditId=id||null;
@@ -2850,7 +2943,10 @@ function openItemModal(id, preRoom, tpl){
         <img id="item-img-prev" src="${esc(imageUrl)}" style="width:48px;height:48px;object-fit:contain;border-radius:4px;border:1px solid var(--border);margin-top:6px;${imageUrl?'':'display:none'}" onerror="this.style.display='none'">
       </div>
       <div class="fg"><label>Rum</label><select id="f-room">${rooms.map(r=>`<option value="${esc(r.id)}"${r.id===room?' selected':''}>${esc(r.name)}</option>`).join('')}${!rooms.length?'<option value="">— opret rum først —</option>':''}</select></div>
-      <div class="fg"><label>Præcis placering</label><input id="f-shelf" value="${esc(shelf)}" placeholder="Reol 2, sektion B, hylde 3"></div>
+      <div class="form-row">
+        <div class="fg"><label>Præcis placering (hylde)</label><input id="f-shelf" value="${esc(shelf)}" placeholder="Reol 2, sektion B, hylde 3"></div>
+        <div class="fg"><label>Overordnet placering</label><input id="f-location" list="location-list" value="${esc(location)}" placeholder="Rum A, Hylde 2"><datalist id="location-list">${[...new Set(items.map(i=>i.location||'').filter(Boolean))].sort().map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div>
+      </div>
       <div class="form-row">
         <div class="fg">
           <label>Antal på lager</label>
@@ -2863,11 +2959,13 @@ function openItemModal(id, preRoom, tpl){
           </div>
         </div>
         <div class="fg"><label style="display:flex;justify-content:space-between;align-items:center">Min. beholdning <button type="button" onclick="suggestMinQty('${id||''}')" style="font-size:10px;font-weight:600;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:4px;padding:1px 6px;cursor:pointer;line-height:1.5" title="Beregn ud fra forbrug × leveringstid">✦ Auto</button></label><input id="f-minq" type="number" value="${minQ}" min="0"></div>
+        <div class="fg"><label>Skadet antal</label><input id="f-damaged" type="number" min="0" value="${damagedQty}" placeholder="0" title="Enheder der er beskadigede og ikke salgbare"></div>
         <div class="fg"><label>Reserveret</label><input id="f-reserved" type="number" value="${reserved}" min="0" title="Stk. reserveret til specifikke ordrer — trækkes fra disponibel beholdning"></div>
         <div class="fg"><label>Leveringstid (dage)</label><input id="f-lead" type="number" value="${lead||''}" min="0" placeholder="—" title="Dage fra bestilling til hylde"></div>
       </div>
       <div class="form-row">
         <div class="fg"><label>Indkøbspris (kr./stk)</label><input id="f-cost" type="number" min="0" step="0.01" value="${esc(costPrice)}" placeholder="—" title="Hvad du betaler leverandøren per stk"></div>
+        <div class="fg"><label>Din salgspris (kr./stk)</label><input id="f-saleprice" type="number" min="0" step="0.01" value="${esc(salePrice)}" placeholder="—" title="Din egen salgspris per stk"></div>
         <div class="fg"><label>Min. bestillingsmængde</label><input id="f-moq" type="number" min="1" value="${esc(moq)}" placeholder="—" title="Mindste antal man kan bestille ad gangen"></div>
       </div>
       ${allLeverandoerer.length ? `<div class="fg"><label>Leverandør</label><select id="f-supplier"><option value="">— ingen —</option>${allLeverandoerer.map(l=>`<option value="${esc(l.id)}"${l.id===supplier?' selected':''}>${esc(l.name)}</option>`).join('')}</select></div>` : ''}
@@ -3041,7 +3139,10 @@ async function saveItem(id, edit){
     moq:document.getElementById('f-moq')?.value||'',
     reserved:document.getElementById('f-reserved')?.value||'0',
     bundle_json:(document.getElementById('f-is-bundle')?.checked&&window._bundleComps?.length)?JSON.stringify(window._bundleComps):'',
-    imageUrl:document.getElementById('f-imageurl')?.value.trim()||'' };
+    imageUrl:document.getElementById('f-imageurl')?.value.trim()||'',
+    damaged_qty:document.getElementById('f-damaged')?.value||'0',
+    location:document.getElementById('f-location')?.value.trim()||'',
+    sale_price:document.getElementById('f-saleprice')?.value||'' };
   closeModal(); sync('load','Gemmer…');
   try {
     const r=await jsonp(p);
@@ -5775,6 +5876,66 @@ async function deleteLevFn(id){
   } catch(e){ toast('Fejl: '+e.message); }
 }
 
+// ── GENBESTILLINGSMAIL ──
+async function openReorderModal(itemId){
+  const it=items.find(i=>i.id===itemId); if(!it) return;
+  const lev=allLeverandoerer.find(l=>l.id===it.supplier);
+  const levEmail=lev?.email||'';
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📧 Genbestillingsmail — ${esc(it.name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Genererer AI-udkast til genbestillingsmail…</div>
+      <div class="form-row">
+        <div class="fg"><label>Til</label><input id="reorder-to" type="email" value="${esc(levEmail)}" placeholder="leverandoer@eksempel.dk"></div>
+        <div class="fg"><label>Emne</label><input id="reorder-subject" value="${esc('Genbestilling: '+it.name)}"></div>
+      </div>
+      <div class="fg"><label>Brødtekst</label><textarea id="reorder-body" style="min-height:200px" placeholder="Genererer…"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" onclick="generateReorderDraft('${esc(itemId)}')">✦ Regenerér AI-udkast</button>
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="sendReorderMailFn()">Send email</button>
+    </div>`;
+  openModal();
+  // Generate AI draft
+  generateReorderDraft(itemId);
+}
+
+async function generateReorderDraft(itemId){
+  const it=items.find(i=>i.id===itemId); if(!it) return;
+  const lev=allLeverandoerer.find(l=>l.id===it.supplier);
+  const bodyEl=document.getElementById('reorder-body'); if(!bodyEl) return;
+  bodyEl.value='Genererer…';
+  // Find seneste PO for denne vare
+  const lastPO=allPO.filter(po=>po.items&&po.items.some(pi=>pi.name===it.name||pi.id===it.id)).sort((a,b)=>b.created.localeCompare(a.created))[0];
+  const lastQty=lastPO?(lastPO.items||[]).find(pi=>pi.name===it.name||pi.id===it.id)?.orderedQty||'':'';
+  const ctx=`Vare: ${it.name}${it.sku?' (SKU: '+it.sku+')':''}\nNuværende antal: ${it.qty}\nMinimumsbeholdning: ${it.minQty}\nLeverandør: ${lev?.name||'ukendt'}${lastQty?'\nSidst bestilt: '+lastQty+' stk.':''}`;
+  try {
+    const d=await jsonpShip({action:'claudeProxy',max_tokens:400,
+      messages:[{role:'user',content:`Skriv en kort, professionel dansk genbestillingsmail baseret på disse oplysninger:\n${ctx}\n\nKun emailens krop — ingen emne. Underskriv med "Med venlig hilsen\nSESU"`}]});
+    const txt=d?.content?.[0]?.text||'';
+    if(bodyEl) bodyEl.value=txt||'Kunne ikke generere udkast — udfyld manuelt.';
+  } catch(e){
+    if(bodyEl) bodyEl.value='Fejl ved AI-generering — udfyld manuelt.';
+  }
+}
+
+async function sendReorderMailFn(){
+  const to=document.getElementById('reorder-to')?.value.trim();
+  const subject=document.getElementById('reorder-subject')?.value.trim();
+  const body=document.getElementById('reorder-body')?.value.trim();
+  if(!to){ toast('Angiv en modtager-email'); return; }
+  closeModal();
+  try {
+    const d=await jsonpShip({action:'sendReorderEmail',to,subject,body});
+    if(d.error) throw new Error(d.error);
+    toast('Genbestillingsmail sendt til '+to);
+  } catch(e){ toast('Fejl: '+e.message); }
+}
+
 // ── RAPPORTER ──
 async function renderRapporter(force){
   const el=document.getElementById('tab-rapporter');
@@ -5988,6 +6149,84 @@ async function renderRapporter(force){
         </table></div>
         ${marginItems.length>15?`<div style="padding:8px 16px;font-size:11px;color:var(--ink-3)">Viser top 15 af ${marginItems.length} varer</div>`:''}
       </div>`;
+    })()}
+
+    <!-- Lageromsætningshastighed -->
+    ${(()=>{
+      if(!histEntries.length) return '';
+      const cut30=new Date(Date.now()-30*86400000).toISOString();
+      const rows=items.map(i=>{
+        const consumed=histEntries.filter(e=>e.item_id===i.id&&e.ts>=cut30).reduce((s,e)=>{const d=parseInt(e.to_qty||0)-parseInt(e.from_qty||0);return s+(d<0?-d:0);},0);
+        if(!consumed) return null;
+        const qty=parseInt(i.qty||0);
+        const dailyRate=consumed/30;
+        const daysToZero=qty>0?Math.round(qty/dailyRate):0;
+        const lead=parseInt(i.leadDays||0);
+        const reorderDay=lead>0?Math.max(0,daysToZero-lead):null;
+        return {...i,dailyRate,daysToZero,reorderDay};
+      }).filter(Boolean).sort((a,b)=>a.daysToZero-b.daysToZero);
+      if(!rows.length) return '';
+      const urgent=rows.filter(r=>r.daysToZero<=14);
+      return `<div class="card" style="margin-bottom:20px">
+        <div class="card-header"><span class="card-title">Lageromsætningshastighed</span><span style="font-size:11px;color:var(--ink-3)">${urgent.length>0?`<span style="color:var(--red);font-weight:700">${urgent.length} løber tør inden 14 dage</span>`:rows.length+' varer med forbrug'}</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Vare</th><th style="width:9%">Antal</th><th style="width:14%">Gns./dag</th><th style="width:10%">Dage til nul</th><th style="width:16%">Genbestil senest</th></tr></thead>
+          <tbody>${rows.slice(0,20).map(r=>{
+            const urgent=r.daysToZero<=14;
+            const soonStr=r.reorderDay!==null?(r.reorderDay<=0?'<span style="color:var(--red);font-weight:700">Bestil NU</span>':`om ${r.reorderDay}d`):'—';
+            return `<tr style="${urgent?'background:rgba(184,32,32,.04)':''}">
+              <td><div class="td-name" style="cursor:pointer${urgent?';color:var(--red)':''}" onclick="openItemModal('${r.id}',null)">${esc(r.name)}</div></td>
+              <td style="font-family:'IBM Plex Mono',monospace;font-weight:600">${r.qty}</td>
+              <td style="font-family:'IBM Plex Mono',monospace;color:var(--ink-3);font-size:12px">${(r.dailyRate).toFixed(1)}/dag</td>
+              <td style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${r.daysToZero<=7?'var(--red)':r.daysToZero<=14?'var(--amber)':'var(--ink)'}">${r.daysToZero}d</td>
+              <td style="font-size:12px">${soonStr}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+        ${rows.length>20?`<div style="padding:8px 16px;font-size:11px;color:var(--ink-3)">Viser top 20 af ${rows.length} varer</div>`:''}
+      </div>`;
+    })()}
+
+    <!-- Omsætningshistorik -->
+    ${(()=>{
+      if(!lastChartData||!lastChartData.length) return '';
+      const MONTHS=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+      const cut30=new Date(Date.now()-30*86400000).toISOString();
+      // Top 5 solgte varer (seneste bevægelser - udgående)
+      const salesMap={};
+      histEntries.filter(e=>e.ts>=cut30).forEach(e=>{
+        const d=parseInt(e.to_qty||0)-parseInt(e.from_qty||0);
+        if(d<0){ if(!salesMap[e.item_id]) salesMap[e.item_id]={name:e.item_name,qty:0}; salesMap[e.item_id].qty+=Math.abs(d); }
+      });
+      const top5=Object.entries(salesMap).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5);
+      return `<div class="card" style="margin-bottom:20px">
+        <div class="card-header"><span class="card-title">Omsætningshistorik</span><span style="font-size:11px;color:var(--ink-3)">Forsendelser + lagerbevægelser</span></div>
+        <div style="padding:0 20px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="border-bottom:2px solid var(--border)">
+              <th style="padding:8px 0;text-align:left">Måned</th>
+              <th style="padding:8px 0;text-align:right">Forsendelser</th>
+              <th style="padding:8px 0;text-align:right">Fragtomk. (kr.)</th>
+              <th style="padding:8px 0;text-align:right">Gns./forsendelse</th>
+            </tr></thead>
+            <tbody>
+              ${lastChartData.map(m=>`<tr style="border-bottom:1px solid var(--border-light)">
+                <td style="padding:7px 0">${MONTHS[m.month-1]} ${m.year}</td>
+                <td style="padding:7px 0;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600">${m.count}</td>
+                <td style="padding:7px 0;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--blue)">${m.total.toLocaleString('da-DK')} kr.</td>
+                <td style="padding:7px 0;text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--ink-3)">${m.avg.toLocaleString('da-DK')} kr.</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${top5.length?`<div style="padding:12px 20px;border-top:1px solid var(--border-light);margin-top:8px">
+          <div style="font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Top 5 udgående varer (seneste 30 dage)</div>
+          ${top5.map(([id,v])=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
+            <span>${esc(v.name||id)}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--ink-2)">${v.qty} stk.</span>
+          </div>`).join('')}
+        </div>`:''}
+      </div>`;
     })()}`;
 }
 
@@ -6111,10 +6350,61 @@ function otJumpToItem(id){
 // ── STREGKODE-SCANNER ──
 let scannerStream = null;
 
+function openBarcodeScanner(onDetect){
+  // Generic scanner that calls onDetect(rawValue) when a barcode is found
+  if(!navigator.mediaDevices?.getUserMedia){ toast('Kamera ikke tilgængeligt i denne browser'); return; }
+  const overlay = document.createElement('div');
+  overlay.id = 'scanner-overlay';
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-box">
+      <div style="padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.1)">
+        <span style="color:#fff;font-size:14px;font-weight:600">📷 Scan stregkode / QR</span>
+        <button onclick="closeScanner()" style="border:none;background:none;cursor:pointer;color:rgba(255,255,255,.6);font-size:18px">✕</button>
+      </div>
+      <div style="position:relative">
+        <video id="scanner-vid" class="scanner-video" autoplay muted playsinline></video>
+        <div class="scanner-crosshair"><div class="scanner-frame"></div></div>
+      </div>
+      <div id="scanner-status" class="scanner-status">Hold stregkoden inden for rammen…</div>
+      <div style="padding:0 20px 16px;text-align:center">
+        <button class="btn btn-ghost btn-sm" onclick="closeScanner()">Annuller</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } })
+    .then(stream => {
+      scannerStream = stream;
+      const vid = document.getElementById('scanner-vid');
+      if(!vid){ closeScanner(); return; }
+      vid.srcObject = stream;
+      const detector = 'BarcodeDetector' in window
+        ? new BarcodeDetector({ formats:['ean_13','ean_8','code_128','code_39','qr_code','data_matrix'] })
+        : null;
+      if(!detector){ document.getElementById('scanner-status').textContent = '⚠ Stregkode-scanning kræver Chrome/Edge.'; }
+      let scanning = true;
+      const poll = setInterval(async () => {
+        if(!scanning || !document.getElementById('scanner-overlay')) { clearInterval(poll); return; }
+        if(!detector || vid.readyState < 2) return;
+        try {
+          const codes = await detector.detect(vid);
+          if(!codes.length) return;
+          clearInterval(poll); scanning = false;
+          onDetect(codes[0].rawValue);
+        } catch(e){}
+      }, 300);
+    })
+    .catch(err => {
+      const st = document.getElementById('scanner-status');
+      if(st) st.textContent = 'Kamera-adgang nægtet: '+err.message;
+    });
+}
+
 function openScanner(){
   if(!navigator.mediaDevices?.getUserMedia){ toast('Kamera ikke tilgængeligt i denne browser'); return; }
 
   const inOtaelling = document.getElementById('tab-optaelling')?.style.display !== 'none';
+  const inModtagelse = document.getElementById('tab-modtagelse')?.style.display !== 'none';
 
   const overlay = document.createElement('div');
   overlay.id = 'scanner-overlay';
@@ -6161,7 +6451,7 @@ function openScanner(){
           const raw = codes[0].rawValue;
           clearInterval(poll);
           scanning = false;
-          handleScan(raw, inOtaelling);
+          handleScan(raw, inOtaelling, inModtagelse);
         } catch(e){}
       }, 300);
     })
@@ -6176,7 +6466,7 @@ function closeScanner(){
   document.getElementById('scanner-overlay')?.remove();
 }
 
-function handleScan(raw, inOtaelling){
+function handleScan(raw, inOtaelling, inModtagelse){
   closeScanner();
   // 1) Egne QR-koder starter med "lager:itemId"
   let found = null;
@@ -6195,8 +6485,17 @@ function handleScan(raw, inOtaelling){
     showTab('optaelling');
     setTimeout(()=>otJumpToItem(found.id), 150);
     toast('Fundet: '+found.name);
+  } else if(inModtagelse){
+    // Jump to item in receipt flow
+    const inp = document.getElementById('recv-inp-'+found.id);
+    if(inp){ inp.scrollIntoView({behavior:'smooth',block:'center'}); inp.focus(); inp.select(); toast('Fundet: '+found.name); }
+    else { toast('Vare ikke i modtagelses-listen: '+found.name); }
   } else {
-    openQuickScanModal(found);
+    // Search in items list
+    showTab('varer');
+    document.getElementById('search').value = found.name;
+    renderItems();
+    toast('Fundet: '+found.name);
   }
 }
 
