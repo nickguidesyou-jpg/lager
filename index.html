@@ -3955,8 +3955,7 @@ async function generatePartnerReport() {
     return sum + lv;
   }, 0);
 
-  // SHA-256 af adgangskoden — koden kan ikke aflæses fra HTML-source
-  const _ph = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('dpt68uwe!')).then(b => Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''));
+  const _ph = '88423afe4fea6e2f0567bfc1a41cb61850d87015692590a621f6645d3a739a39'; // SHA-256 af rapport-adgangskode
 
   const html = `<!DOCTYPE html><html lang="da"><head><meta charset="UTF-8">
 <title>SESU Lagerstatus — ${today}</title>
