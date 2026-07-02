@@ -77,6 +77,7 @@ function doGet(e) {
     else if (action === 'getBalance')      result = getBalance();
     else if (action === 'getMonthlyStats')   result = getMonthlyStats();
     else if (action === 'getMonthlyHistory') result = getMonthlyHistory();
+    else if (action === 'sendReorderEmail')  result = sendReorderEmail(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
     result = { error: err.message };
@@ -135,6 +136,7 @@ function doPost(e) {
     else if (action === 'getMonthlyStats')       result = getMonthlyStats();
     else if (action === 'getMonthlyHistory')     result = getMonthlyHistory();
     else if (action === 'createShipment')        result = createShipment(p);
+    else if (action === 'sendReorderEmail')      result = sendReorderEmail(p);
     else if (action === 'claudeProxy')           result = claudeProxy(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
@@ -662,6 +664,16 @@ function debugLabel(id) {
     packages_field: ship.packages  ? ship.packages.map(function(p){ return { id:p.id, label:p.label, label_url:p.label_url }; }) : null,
     labels_endpoint: labelsEndpoint
   };
+}
+
+function sendReorderEmail(p) {
+  if (!p.to) return { error: 'Ingen modtager-email' };
+  MailApp.sendEmail({
+    to: p.to,
+    subject: p.subject || 'Genbestilling',
+    body: p.body || ''
+  });
+  return { ok: true };
 }
 
 function createShipment(p) {
