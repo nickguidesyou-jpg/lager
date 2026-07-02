@@ -2624,7 +2624,7 @@ function renderItems(){
   const q = (document.getElementById('search').value||'').toLowerCase();
   try { localStorage.setItem('lager_varer_search', q); localStorage.setItem('lager_varer_cat', activeCat); } catch(e) {}
   document.getElementById('filter-chips').innerHTML = ['Alle',...CATS].map(c=>`
-    <button class="chip${activeCat===c?' active':''}" onclick="activeCat='${c}';renderItems()">${c}</button>`).join('');
+    <button class="chip js-cat-chip${activeCat===c?' active':''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
 
   // Update sort arrows
   ['name','cat','loc','qty'].forEach(col => {
@@ -4281,7 +4281,7 @@ async function generateMonthlyReport() {
     <div class="section-title">Top 10 mest solgte produkter</div>
     <table>
       <tr><th>#</th><th>Produkt</th><th style="text-align:right">Solgt</th></tr>
-      ${top10.map(([id,d],i)=>`<tr><td class="mono">${i+1}</td><td>${d.name||id}</td><td style="text-align:right" class="mono">${d.qty} stk.</td></tr>`).join('')}
+      ${top10.map(([id,d],i)=>`<tr><td class="mono">${i+1}</td><td>${esc2(d.name||id)}</td><td style="text-align:right" class="mono">${d.qty} stk.</td></tr>`).join('')}
     </table>
   </div>` : ''}
 
@@ -4293,7 +4293,7 @@ async function generateMonthlyReport() {
       ${lowItems.map(i=>{
         const qty=parseInt(i.qty||0), min=parseInt(i.minQty||0);
         return `<tr>
-          <td>${i.name} ${qty===0?'<span class="badge-red">UDSOLGT</span>':'<span class="badge-yellow">LAV</span>'}</td>
+          <td>${esc2(i.name)} ${qty===0?'<span class="badge-red">UDSOLGT</span>':'<span class="badge-yellow">LAV</span>'}</td>
           <td class="mono" style="color:#888">${i.sku||'—'}</td>
           <td style="text-align:right" class="mono">${qty}</td>
           <td style="text-align:right" class="mono">${min}</td>
@@ -4312,7 +4312,7 @@ async function generateMonthlyReport() {
         const name=(s.receiver_address||[{name:''}])[0]?.name||s.parties?.find(p=>p.type==='receiver')?.name||'—';
         const val=calcVal(s.id);
         const d=new Date(s.created_at).toLocaleDateString('da-DK',{day:'numeric',month:'short'});
-        return `<tr><td class="mono" style="color:#888;font-size:11px">${s.id}</td><td>${name}</td><td>${d}</td><td style="text-align:right" class="mono">${val>0?Math.round(val).toLocaleString('da-DK')+' kr.':'—'}</td></tr>`;
+        return `<tr><td class="mono" style="color:#888;font-size:11px">${esc2(String(s.id))}</td><td>${esc2(name)}</td><td>${d}</td><td style="text-align:right" class="mono">${val>0?Math.round(val).toLocaleString('da-DK')+' kr.':'—'}</td></tr>`;
       }).join('')}
     </table>
   </div>` : ''}
@@ -4453,7 +4453,7 @@ function renderKalender(){
     const key=`${kalYear}-${String(kalMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const isToday=key===today;
     const dayEvents=events[key]||[];
-    const dots=dayEvents.map(ev=>`<div style="font-size:9px;padding:1px 4px;border-radius:3px;background:${ev.type==='blue'?'var(--blue)':ev.type==='red'?'var(--red)':'var(--amber)'};color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;max-width:100%" title="${ev.label}">${ev.label}</div>`).join('');
+    const dots=dayEvents.map(ev=>`<div style="font-size:9px;padding:1px 4px;border-radius:3px;background:${ev.type==='blue'?'var(--blue)':ev.type==='red'?'var(--red)':'var(--amber)'};color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;max-width:100%" title="${esc(ev.label)}">${esc(ev.label)}</div>`).join('');
     html+=`<div style="min-height:72px;border:1px solid var(--border);border-radius:6px;padding:4px;background:${isToday?'var(--blue-dim)':dayEvents.length?'var(--surface-2)':'var(--white)'}">
       <div style="font-size:11px;font-weight:${isToday?'700':'400'};color:${isToday?'var(--blue)':'var(--ink-3)'};margin-bottom:3px">${day}</div>
       <div style="display:flex;flex-direction:column;gap:2px;overflow:hidden">${dots}</div>
@@ -5293,7 +5293,7 @@ document.addEventListener('click', e => {
   if(panel && !panel.contains(e.target) && e.target !== inp) closeAI();
 });
 
-// ── DELEGEREDE KLIK — undgår JSON-i-onclick ──
+// ── DELEGEREDE KLIK — undgår JSON-i-onclick og XSS i onclick ──
 document.addEventListener('click', e => {
   const b = e.target.closest('.js-finish-pick');
   if(b) finishPickList(b.dataset.sid, JSON.parse(b.dataset.items));
@@ -5301,6 +5301,10 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   const b = e.target.closest('.js-confirm-recv-po');
   if(b) confirmReceivePO(b.dataset.id, JSON.parse(b.dataset.items));
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('.js-cat-chip');
+  if(b){ activeCat = b.dataset.cat; renderItems(); }
 });
 
 // ── CSV EXPORT ──
@@ -7280,7 +7284,7 @@ function showQR(id){
   const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='+encodeURIComponent(text);
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
-      <div class="modal-title">QR-kode — ${i.name}</div>
+      <div class="modal-title">QR-kode — ${esc(i.name)}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body" style="text-align:center">
@@ -7301,7 +7305,7 @@ function showSesuQR(encodedUrl, name){
   const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(url);
   document.getElementById('modal-box').innerHTML=`
     <div class="modal-head">
-      <div class="modal-title">sesu.dk — ${name}</div>
+      <div class="modal-title">sesu.dk — ${esc(name)}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body" style="text-align:center">
@@ -7309,7 +7313,7 @@ function showSesuQR(encodedUrl, name){
       <div style="font-size:11px;color:var(--ink-3);margin-top:8px;word-break:break-all">${url}</div>
       <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
         <a href="${url}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Åbn sesu.dk</a>
-        <a href="${qrUrl}" download="qr-sesu-${name}.png" class="btn btn-sm">↓ Download QR</a>
+        <a href="${qrUrl}" download="qr-sesu-${esc(name)}.png" class="btn btn-sm">↓ Download QR</a>
       </div>
     </div>
     <div class="modal-foot">
