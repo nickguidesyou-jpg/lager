@@ -308,20 +308,23 @@ function setupTOTP(p) {
   if (!storedHash || p.hash !== storedHash) return { error: 'Forkert adgangskode' };
   if (props.getProperty('TOTP_SECRET'))    return { error: '2FA er allerede aktiveret' };
   var secret = generateTOTPSecret();
-  props.setProperty('TOTP_SECRET', secret);
+  props.setProperty('TOTP_PENDING', secret); // Gemmes som pending — aktiveres først ved confirmTOTPSetup
   return { secret: secret };
 }
 
 function confirmTOTPSetup(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
-  var secret     = props.getProperty('TOTP_SECRET');
   if (!storedHash || p.hash !== storedHash) return { error: 'Forkert adgangskode' };
-  if (!secret) return { error: 'Kald setupTOTP først' };
-  if (!checkTOTP(secret, p.code)) {
-    props.deleteProperty('TOTP_SECRET'); // Fjern igen hvis bekræftelse fejler
+  var pending = props.getProperty('TOTP_PENDING');
+  if (!pending) return { error: 'Ingen ventende TOTP-opsætning' };
+  if (!checkTOTP(pending, p.code)) {
+    props.deleteProperty('TOTP_PENDING'); // Fjern pending hvis bekræftelse fejler
     return { error: 'Forkert kode — prøv igen fra start' };
   }
+  // Bekræftelse lykkedes — promovér pending → aktiv
+  props.setProperty('TOTP_SECRET', pending);
+  props.deleteProperty('TOTP_PENDING');
   return { ok: true };
 }
 
