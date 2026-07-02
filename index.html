@@ -7078,8 +7078,8 @@ async function aiReorderSuggestion() {
   const lines = low.map(i=>{
     const need = parseInt(i.minQty||0)-parseInt(i.qty||0);
     const hist = histEntries.filter(h=>h.item_id===i.id).slice(0,10);
-    const avgUsage = hist.length > 1
-      ? Math.abs(hist.slice(0,-1).reduce((s,h,idx)=>s+(parseInt(hist[idx].to_qty||0)-parseInt(h.to_qty||0)),0)/Math.max(hist.length-1,1))
+    const avgUsage = hist.length > 0
+      ? Math.abs(hist.reduce((s,h)=>s+(parseInt(h.to_qty||0)-parseInt(h.from_qty||0)),0)/Math.max(hist.length,1))
       : null;
     return `${i.name}${i.sku?' ('+i.sku+')':''}: ${i.qty}/${i.minQty} stk. Mangler ${need}. Leveringstid: ${i.leadDays||'?'} dage.${avgUsage!==null?' Gns. forbrug: ~'+Math.round(Math.abs(avgUsage))+' stk/bevægelse.':''}`;
   }).join('\n');
