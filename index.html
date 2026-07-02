@@ -3274,6 +3274,7 @@ async function loadShipments(){
 let activeCarrier = 'Alle';
 let allShips = [];
 let shipPackageContents = {}; // shipment_id → [{id, qty}]
+const _skipShipIds = new Set(); // forsendelser hvor lagertræk allerede er udført
 
 function renderCarrierChips(ships){
   const carriers = ['Alle', ...new Set(ships.map(s=>s.carrier_code||s.product_code?.split('_')[0]||'?').map(c=>c.toUpperCase()))];
@@ -5164,7 +5165,7 @@ async function doLogout() {
 
   // Nulstil data i hukommelsen så konsollen ikke kan læse det efter logout
   items=[]; rooms=[]; histEntries=[]; allShips=[]; allSO=[];
-  allPO=[]; allLeverandoerer=[]; shipPackageContents={};
+  allPO=[]; allLeverandoerer=[]; shipPackageContents={}; _skipShipIds.clear();
   _loginHash=''; autoTimer=null;
 
   location.reload();
@@ -5186,7 +5187,7 @@ function toggleLoginVis() {
 localStorage.removeItem('lager_claude_key');
 
 // Auto-unlock if already authenticated this session
-// ── AUTO-LOGOUT ved inaktivitet (8 timer) ──
+// ── AUTO-LOGOUT ved inaktivitet (2 timer) ──
 const INACTIVITY_MS = 2 * 60 * 60 * 1000;
 let _inactivityTimer = null;
 function resetInactivityTimer(){
@@ -7332,7 +7333,7 @@ function openPackageModal(shipId){
   if(window.pkgModalSid !== sid){
     window.pkgModalSid = sid;
     window.pkgModalRows = ((shipPackageContents[sid]||{}).items || []).map(e=>({...e}));
-    window.pkgSkipDeduction = shipPackageContents[sid+'__skip'] === true;
+    window.pkgSkipDeduction = _skipShipIds.has(sid);
   }
 
   function pkgCalcTotal(){
@@ -7460,7 +7461,7 @@ async function savePackageContentsModal(shipId){
 
     if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
     shipPackageContents[sid].items = newRows;
-    shipPackageContents[sid+'__skip'] = true; // mark as processed next time
+    _skipShipIds.add(sid); // mark as processed next time
 
     if(!skipDeduction){
       // Apply diff to warehouse quantities
