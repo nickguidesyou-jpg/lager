@@ -5293,6 +5293,16 @@ document.addEventListener('click', e => {
   if(panel && !panel.contains(e.target) && e.target !== inp) closeAI();
 });
 
+// ── DELEGEREDE KLIK — undgår JSON-i-onclick ──
+document.addEventListener('click', e => {
+  const b = e.target.closest('.js-finish-pick');
+  if(b) finishPickList(b.dataset.sid, JSON.parse(b.dataset.items));
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('.js-confirm-recv-po');
+  if(b) confirmReceivePO(b.dataset.id, JSON.parse(b.dataset.items));
+});
+
 // ── CSV EXPORT ──
 
 // ── ABC ANALYSE ──
@@ -5613,7 +5623,7 @@ function openPickList(shipId){
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="window.print()">🖨 Print</button>
-      <button class="btn btn-ghost" id="pick-finish-btn" onclick="finishPickList('${sid}',${JSON.stringify(sorted)})" style="display:none">✓ Afslut pluk — træk fra lager</button>
+      <button class="btn btn-ghost js-finish-pick" id="pick-finish-btn" data-sid="${esc(sid)}" data-items='${JSON.stringify(sorted).replace(/'/g,"&apos;")}' style="display:none">✓ Afslut pluk — træk fra lager</button>
       <button class="btn btn-primary" onclick="closeModal()">Luk</button>
     </div>`;
   openModal();
@@ -6919,7 +6929,7 @@ function openReceivePO(id){
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Annuller</button>
-      <button class="btn btn-primary" onclick="confirmReceivePO('${id}',${JSON.stringify(poItems)})">Gem modtagelse</button>
+      <button class="btn btn-primary js-confirm-recv-po" data-id="${esc(id)}" data-items='${JSON.stringify(poItems).replace(/'/g,"&apos;")}'>Gem modtagelse</button>
     </div>`;
   openModal();
 }
