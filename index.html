@@ -1504,7 +1504,7 @@ body.compact .low-row { padding: 8px 16px; }
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste som CSV">↓ CSV</button>
-        <label class="btn btn-ghost btn-sm" title="Importer varer fra CSV-fil" style="cursor:pointer;margin:0">↑ Import<input type="file" accept=".csv" onchange="importCSV(this)" style="display:none"></label>
+        <button class="btn btn-ghost btn-sm" title="Importer varer fra CSV-fil" onclick="openImportModal()">↑ Import</button>
         <button class="btn btn-ghost btn-sm" onclick="openLabelModal()" title="Print hyldeetiketter">🏷 Labels</button>
         <button class="btn btn-ghost btn-sm" onclick="loadAll()">⟳ Opdater</button>
         <button class="btn btn-primary" onclick="openItemModal(null,null)">+ Tilføj vare</button>
@@ -8186,62 +8186,6 @@ function renderLabelPreview(){
   </div>`;
 }
 
-// ── CSV IMPORT ──
-function importCSV(input){
-  const file=input.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const raw=e.target.result.replace(/^﻿/,''); // strip UTF-8 BOM
-    const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);
-    if(lines.length<2){ toast('Tom eller ugyldig CSV-fil'); return; }
-    // Detect header
-    const header=lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim().toLowerCase());
-    const col=n=>header.indexOf(n);
-    const iName=col('varenavn'), iSku=col('sku'), iCat=col('kategori');
-    const iRoom=col('rum'), iShelf=col('placering'), iQty=col('antal');
-    const iMin=col('minimum'), iNote=col('note');
-    if(iName<0){ toast('Kolonnen "Varenavn" mangler i CSV'); input.value=''; return; }
-    let imported=0, skipped=0;
-    const rows=lines.slice(1).map(l=>{
-      // Split respecting quoted commas
-      const cells=[]; let cur='',inQ=false;
-      for(const ch of l){ if(ch==='"'){ inQ=!inQ; }else if(ch===','&&!inQ){ cells.push(cur.trim()); cur=''; }else{ cur+=ch; } }
-      cells.push(cur.trim());
-      return cells.map(c=>c.replace(/^"|"$/g,''));
-    });
-    const updates=[];
-    rows.forEach(cells=>{
-      const name=cells[iName]||''; if(!name){ skipped++; return; }
-      const sku=iSku>=0?cells[iSku]||'':'';
-      const qty=iQty>=0?parseInt(cells[iQty])||0:null;
-      const min=iMin>=0?parseInt(cells[iMin])||0:null;
-      const note=iNote>=0?cells[iNote]||'':'';
-      const cat=iCat>=0?cells[iCat]||'':'';
-      const shelf=iShelf>=0?cells[iShelf]||'':'';
-      // Try match by SKU first, then name
-      let existing=sku?items.find(i=>i.sku&&i.sku.toLowerCase()===sku.toLowerCase()):null;
-      if(!existing) existing=items.find(i=>i.name.toLowerCase()===name.toLowerCase());
-      if(existing){
-        const upd={...existing};
-        if(qty!==null) upd.qty=qty;
-        if(min!==null) upd.minQty=min;
-        if(note) upd.note=note;
-        if(cat) upd.cat=cat;
-        if(shelf) upd.shelf=shelf;
-        updates.push(upd); imported++;
-      } else { skipped++; }
-    });
-    if(!updates.length){ toast(`Ingen matchende varer fundet (${skipped} rækker sprunget over)`); input.value=''; return; }
-    if(!confirm(`Opdater ${imported} varer fra CSV? (${skipped} rækker matchede ikke og springes over)`)) { input.value=''; return; }
-    // Save all updates sequentially
-    let done=0;
-    const next=()=>{ if(done>=updates.length){ toast(`${imported} varer opdateret fra CSV`); loadAll(); return; }
-      saveItem(updates[done].id,updates[done]); done++; setTimeout(next,150); };
-    next();
-  };
-  reader.readAsText(file,'utf-8');
-  input.value='';
-}
 
 // Udvid exportCSV med flere felter
 function exportCSV(){
