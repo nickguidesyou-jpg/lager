@@ -6805,9 +6805,9 @@ function openPOModal(id){
       draftItems.map((e,i)=>`<tr>
         <td style="font-size:13px">${esc(e.name)}</td>
         <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">${esc(e.sku||'')}</td>
-        <td><input type="number" min="1" value="${e.orderedQty||1}" style="width:60px;border:1.5px solid var(--border);border-radius:var(--radius);padding:4px 6px;font-size:12px;font-family:'IBM Plex Mono',monospace" oninput="window._poDraft=${JSON.stringify('x')};draftItems[${i}].orderedQty=Math.max(1,parseInt(this.value)||1)"></td>
+        <td><input type="number" min="1" value="${e.orderedQty||1}" style="width:60px;border:1.5px solid var(--border);border-radius:var(--radius);padding:4px 6px;font-size:12px;font-family:'IBM Plex Mono',monospace" oninput="window._poDraftItems[${i}].orderedQty=Math.max(1,parseInt(this.value)||1)"></td>
         <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${e.receivedQty??'—'}</td>
-        <td><button onclick="draftItems.splice(${i},1);renderDraft()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
+        <td><button onclick="window._poDraftItems.splice(${i},1);window._renderPODraft()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:16px">×</button></td>
       </tr>`).join('')}</tbody></table></div>`;
   };
 
@@ -6826,7 +6826,7 @@ function openPOModal(id){
       <div style="margin:16px 0 8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:12px;font-weight:600;color:var(--ink-2)">Varer i ordren</span>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="po-item-search" placeholder="Søg og tilføj vare…" style="border:1.5px solid var(--border);border-radius:var(--radius);padding:6px 10px;font-size:12px;width:200px" oninput="renderPOSearchDrop(this.value,draftItems)">
+          <input id="po-item-search" placeholder="Søg og tilføj vare…" style="border:1.5px solid var(--border);border-radius:var(--radius);padding:6px 10px;font-size:12px;width:200px" oninput="renderPOSearchDrop(this.value,window._poDraftItems)">
           <div id="po-item-drop" style="position:relative"></div>
         </div>
       </div>
@@ -6837,7 +6837,7 @@ function openPOModal(id){
       ${(()=>{if(!id) return '';const lev=allLeverandoerer.find(l=>l.id===po.supplier_id);return lev?.email?`<button class="btn btn-ghost btn-sm" onclick="sendPOEmailFn('${id}')">📧 Send til leverandør</button>`:''})()}
       ${id?`<button class="btn btn-ghost btn-sm no-print" onclick="window.print()">🖨 Print</button>`:''}
       <button class="btn" onclick="closeModal()">Luk</button>
-      <button class="btn btn-primary" onclick="savePOFn('${id||''}',draftItems)">Gem ordre</button>
+      <button class="btn btn-primary" onclick="savePOFn('${id||''}',window._poDraftItems)">Gem ordre</button>
     </div>`;
 
   // expose draftItems to inline handlers via closure workaround
