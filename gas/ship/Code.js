@@ -49,7 +49,7 @@ function sendLockoutAlert(type) {
 
 function doGet(e) {
   var p  = e.parameter;
-  var cb = p.callback;
+  var cb = p.callback ? (p.callback.replace(/[^\w.]/g,'').substring(0,50) || 'callback') : null;
   var result;
   try {
     var action = p.action;
