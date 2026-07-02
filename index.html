@@ -5345,7 +5345,7 @@ function inlineEditQty(cell,itemId){
     const item=items.find(it=>it.id===itemId);
     if(!item) return;
     item.qty=newQty;
-    await jsonp({action:'saveItem',item});
+    await jsonp({ action:'saveItem', ...item });
     toast('Antal opdateret');
     renderItems();
   }
