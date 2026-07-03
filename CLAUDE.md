@@ -151,8 +151,13 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - Samlet genbestilling: "⚡ Opret alle (+ send mails)" laver én PO pr. leverandør og mailer dem
 - Forsendelser via Shipmondo (visning + manuel oprettelse via "Ny forsendelse" — se kritisk regel)
 - Salgsordrer i Google Sheets med automatisk lagertræk når status sættes til "afsendt" (deducted-flag forhindrer dobbelt-træk)
+- Salgsordre → forsendelse: "📦 Forsendelse"-knap pre-udfylder "Ny forsendelse" med kundedata; ved oprettelse kobles pakkeindhold fra ordrelinjer, ordren sættes til afsendt og lagertræk køres (`linkShipmentToSO`)
+- Returflow: markeres en forsendelse "Returneret" tilbydes at lægge pakkeindholdet tilbage på lager (guard: localStorage-flag + historik-note "Retur fra forsendelse X")
+- Dynamisk genbestillingspunkt: "⏳ Bestil snart"-kort i Oversigt (forbrug/dag × leveringstid × 1.2) + ✦ Auto-knap ved min-beholdning i vare-modalen
+- Historik hentes automatisk i baggrunden efter login (ABC/dødt lager/advarsler virker uden at besøge Historik-fanen)
 - Dødt lager-kort i Oversigt (varer uden afgang i 90+ dage, med bundet værdi)
 - sesu.dk prisalarm (kort i Oversigt ved pris-/lagerændringer på matchede varer)
+- Ugentlig backup: `weeklyBackup()` i lager-script dumper alle ark som JSON til Drive-mappen "Lager Backups" (12 nyeste beholdes). **Kræver engangs-opsætning:** kør `setupBackupTrigger()` manuelt i Apps Script-editoren og godkend Drive-adgang
 - TOTP 2FA med Google Authenticator
 - AI-lageranalyse via Claude (genbestillingsforslag m.m.)
 - PWA (offline-shell via service worker)
@@ -161,6 +166,6 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 
 ## Kendte begrænsninger
 
-- ABC-analyse, dødt lager-kort og aktivitetsfeed kræver at Historik-fanen er besøgt mindst én gang
 - sesu.dk-scraping kan fejle hvis siden ændrer struktur
 - Ingen multi-user support — ét delt token
+- Backup-trigger skal aktiveres manuelt én gang (se ovenfor) før den kører automatisk

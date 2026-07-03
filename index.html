@@ -1553,6 +1553,7 @@ body.compact .low-row { padding: 8px 16px; }
           </div>
         </div>
         <div id="ov-sesu-alerts" style="margin-top:16px"></div>
+        <div id="ov-reorder-dyn" style="margin-top:16px"></div>
         <div id="ov-abc" style="margin-top:16px"></div>
         <div id="ov-damaged" style="margin-top:16px"></div>
         <div id="ov-deadstock" style="margin-top:16px"></div>
@@ -2017,6 +2018,15 @@ body.compact .low-row { padding: 8px 16px; }
         <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Dato</label>
           <input id="so-date" type="date" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
       </div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Leveringsadresse</label>
+        <input id="so-address" type="text" placeholder="Vejnavn og nummer" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:100px 1fr 1fr;gap:8px">
+          <input id="so-zip" type="text" placeholder="Postnr." style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+          <input id="so-city" type="text" placeholder="By" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+          <input id="so-phone" type="tel" placeholder="Telefon" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+        </div>
+        <input id="so-email" type="email" placeholder="kunde@email.dk" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;margin-top:8px">
+      </div>
       <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Status</label>
         <select id="so-status" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
           <option value="ny">Ny</option>
@@ -2177,6 +2187,11 @@ async function loadAll(quiet){
     const lowCount = items.filter(i=>parseInt(i.qty||0)<parseInt(i.minQty||0)).length;
     const pageSub=document.getElementById('page-sub'); if(pageSub) pageSub.textContent = items.length+' varer · '+rooms.length+' rum'+(lowCount?' · '+lowCount+' mangler':'')+' · opdateret '+time;
     renderAll();
+    // Hent historik i baggrunden så ABC, dødt lager og advarsler virker uden at Historik-fanen er besøgt
+    if(!histLoaded && !window._histAutoLoading){
+      window._histAutoLoading=true;
+      loadHistorik().then(()=>renderAll()).catch(()=>{}).finally(()=>{ window._histAutoLoading=false; });
+    }
     if(!autoTimer){
       autoTimer = setInterval(()=>{ if(!document.hidden) loadAll(true); }, 30000);
       if(!window._visibilityListenerAdded){
@@ -2190,7 +2205,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
 
 function renderOverviewABC(){
   const el=document.getElementById('ov-abc'); if(!el) return;
@@ -2225,6 +2240,45 @@ function renderOverviewABC(){
       </div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-3)">Baseret på bevægelseshistorik · <a href="#" onclick="showTab('rapporter');return false" style="color:var(--blue)">Se fuld analyse →</a></div>
+  </div>`;
+}
+
+// Dynamisk genbestillingspunkt: dagligt forbrug (30 dage) × leveringstid × 1.2 buffer
+function calcDynamicPoint(item){
+  if(!histLoaded||!histEntries.length) return null;
+  let lead=parseInt(item.leadDays||0);
+  if(!lead){ const lev=allLeverandoerer.find(l=>l.id===item.supplier); lead=parseInt(lev?.leadDays||0); }
+  if(!lead) return null;
+  const cut=new Date(Date.now()-30*86400000).toISOString();
+  const consumed=histEntries.filter(e=>e.item_id===item.id&&e.ts>=cut)
+    .reduce((s,e)=>{const d=parseInt(e.to_qty||0)-parseInt(e.from_qty||0);return s+(d<0?-d:0);},0);
+  if(!consumed) return null;
+  const dailyRate=consumed/30;
+  return { point:Math.ceil(dailyRate*lead*1.2), dailyRate, lead };
+}
+
+function renderOverviewReorder(){
+  const el=document.getElementById('ov-reorder-dyn'); if(!el) return;
+  if(!histLoaded||!histEntries.length){ el.innerHTML=''; return; }
+  const hits=[];
+  items.forEach(i=>{
+    const dp=calcDynamicPoint(i); if(!dp) return;
+    const qty=parseInt(i.qty||0);
+    // kun varer OVER manuel min-beholdning — dem under fanges allerede af lav beholdning-advarslen
+    if(qty<dp.point && qty>=parseInt(i.minQty||0)) hits.push({ item:i, qty, ...dp });
+  });
+  if(!hits.length){ el.innerHTML=''; return; }
+  hits.sort((a,b)=>(a.qty/a.point)-(b.qty/b.point));
+  el.innerHTML=`<div class="card" style="padding:16px 20px;border-left:3px solid var(--amber)">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px;color:var(--amber)">⏳ Bestil snart (${hits.length})</div>
+    <div style="font-size:11px;color:var(--ink-3);margin-bottom:10px">Over min-beholdning, men under beregnet bestillingspunkt (forbrug × leveringstid + 20% buffer)</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${hits.slice(0,5).map(h=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+        <span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="openItemModal('${h.item.id}',null)">${esc(h.item.name)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${h.qty} stk · punkt: ${h.point} (~${Math.round(h.dailyRate*10)/10}/dag, ${h.lead}d levering)</span>
+      </div>`).join('')}
+      ${hits.length>5?`<div style="font-size:11px;color:var(--ink-3);margin-top:2px">+ ${hits.length-5} flere…</div>`:''}
+    </div>
   </div>`;
 }
 
@@ -3637,6 +3691,39 @@ function setShipStatus(shipId, status){
 
   // Sync to Sheets in background
   jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: stored }).catch(()=>{});
+
+  // Returflow: tilbyd at lægge pakkens varer tilbage på lager
+  if(stored==='returned') maybeRestockShipment(sid).catch(()=>{});
+}
+
+// Læg en returneret forsendelses pakkeindhold tilbage på lager — aldrig dobbelt
+async function maybeRestockShipment(sid){
+  const contents=(shipPackageContents[sid]||{}).items||[];
+  if(!contents.length) return;
+  // Guard 1: lokalt flag · Guard 2: historikken (persistent på tværs af enheder)
+  if(localStorage.getItem('ship_restocked_'+sid)) return;
+  if(histLoaded && histEntries.some(e=>(e.note||'')==='Retur fra forsendelse '+sid)){
+    localStorage.setItem('ship_restocked_'+sid,'1');
+    return;
+  }
+  const totalQty=contents.reduce((s,e)=>s+(parseInt(e.qty)||0),0);
+  if(!confirm(`Pakken indeholder ${totalQty} vare${totalQty===1?'':'r'} — læg tilbage på lager?`)) return;
+  localStorage.setItem('ship_restocked_'+sid,'1'); // sæt før — hellere manglende restock end dobbelt
+  let changed=0, failed=0;
+  for(const e of contents){
+    const it=items.find(i=>i.id===e.id);
+    if(!it) continue;
+    const fromQty=parseInt(it.qty||0);
+    const newQty=fromQty+(parseInt(e.qty)||0);
+    try{
+      await jsonp({ ...it, qty:String(newQty), action:'saveItem' });
+      jsonp({ action:'logMovement', item_id:it.id, item_name:it.name, from_qty:String(fromQty), to_qty:String(newQty), note:'Retur fra forsendelse '+sid }).catch(()=>{});
+      it.qty=String(newQty);
+      changed++;
+    }catch(err){ failed++; }
+  }
+  if(changed){ renderItems(); toast(`${changed} vare${changed===1?'':'r'} lagt tilbage på lager ✓`); }
+  if(failed) toast(failed+' vare(r) kunne ikke lægges tilbage — justér manuelt');
 }
 
 async function debugLabel(id){
@@ -3713,6 +3800,7 @@ async function doPrintLabel(id){
 }
 
 async function openNewShipmentModal(){
+  window._shipmentSOId=null; // nulstil SO-kobling — createShipmentFromSO sætter den igen efter dette kald
   // Load products if not loaded
   if(!availableProducts.length){
     try {
@@ -3934,6 +4022,11 @@ async function submitShipment(){
       if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
       shipPackageContents[sid].status = 'in_transit';
       jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: 'in_transit' }).catch(()=>{});
+      // Kobling til salgsordre: pakkeindhold fra ordrelinjer, status → afsendt, lagertræk
+      if(window._shipmentSOId){
+        try{ await linkShipmentToSO(window._shipmentSOId, sid); }catch(e){ toast('Forsendelse oprettet, men ordre-kobling fejlede: '+e.message); }
+        window._shipmentSOId=null;
+      }
     }
     const labelUrl = d.label_url || d.pdf_uri;
     if(labelUrl) setTimeout(()=>{
@@ -8408,7 +8501,9 @@ async function getSOKey(){
 function soToRow(so){
   return { id:so.id, created:String(so.created||''), customer:so.customer||'', date:so.date||'',
            status:so.status||'ny', note:so.note||'', lines_json:JSON.stringify(so.lines||[]),
-           deducted:so.deducted||'' };
+           deducted:so.deducted||'',
+           address:so.address||'', zip:so.zip||'', city:so.city||'',
+           email:so.email||'', phone:so.phone||'', shipment_id:so.shipment_id||'' };
 }
 
 // Træk salgsordrens linjer fra lageret (kun én gang pr. ordre — markeres med deducted-flag)
@@ -8494,6 +8589,9 @@ async function renderSO(){
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${total>0?total.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.':'—'}</td>
     <td><span class="badge ${statusBadge[so.status]||'badge-gray'}">${statusLabel[so.status]||so.status}</span></td>
     <td style="text-align:right">
+      ${so.shipment_id
+        ?`<span class="badge badge-green" title="Forsendelse ${esc(so.shipment_id)} er oprettet">📦 ✓</span>`
+        :`<button class="btn btn-ghost btn-sm" onclick="createShipmentFromSO('${so.id}')" title="Opret forsendelse med kundedata og pakkeindhold fra ordren">📦 Forsendelse</button>`}
       <button class="btn btn-ghost btn-sm" onclick="openSOPickList('${so.id}')">📋 Plukliste</button>
       <button class="btn btn-ghost btn-sm" onclick="openSOModal('${so.id}')">Rediger</button>
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteSO('${so.id}')">Slet</button>
@@ -8510,6 +8608,11 @@ async function openSOModal(id){
   document.getElementById('so-date').value=so?.date||new Date().toISOString().slice(0,10);
   document.getElementById('so-status').value=so?.status||'ny';
   document.getElementById('so-note').value=so?.note||'';
+  document.getElementById('so-address').value=so?.address||'';
+  document.getElementById('so-zip').value=so?.zip||'';
+  document.getElementById('so-city').value=so?.city||'';
+  document.getElementById('so-email').value=so?.email||'';
+  document.getElementById('so-phone').value=so?.phone||'';
   const linesEl=document.getElementById('so-lines');
   linesEl.innerHTML='';
   (so?.lines||[]).forEach(l=>appendSOLine(l.itemId,l.name,l.qty,l.salePrice||''));
@@ -8545,13 +8648,25 @@ async function saveSOModal(){
     return {itemId:sel.value,name:item?.name||sel.options[sel.selectedIndex]?.text||'',qty:parseInt(inps[0]?.value||1),salePrice:parseFloat(inps[1]?.value||0)||0};
   }).filter(Boolean);
   await loadSO();
+  const fields={
+    customer,
+    date:document.getElementById('so-date').value,
+    status:document.getElementById('so-status').value,
+    note:document.getElementById('so-note').value,
+    address:document.getElementById('so-address').value.trim(),
+    zip:document.getElementById('so-zip').value.trim(),
+    city:document.getElementById('so-city').value.trim(),
+    email:document.getElementById('so-email').value.trim(),
+    phone:document.getElementById('so-phone').value.trim(),
+    lines
+  };
   let so;
   if(id){
     const idx=allSO.findIndex(s=>s.id===id);
     if(idx<0){ toast('Ordren findes ikke længere'); return; }
-    so=allSO[idx]={...allSO[idx],customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines};
+    so=allSO[idx]={...allSO[idx],...fields};
   } else {
-    so={id:genSOId(),customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines,created:Date.now()};
+    so={id:genSOId(),...fields,created:Date.now()};
     allSO.push(so);
   }
   // Automatisk lagertræk når ordren markeres afsendt (kun første gang)
@@ -8568,6 +8683,49 @@ async function deleteSO(id){
   if(r?.error){ toast('Fejl: '+r.error); return; }
   allSO=allSO.filter(s=>s.id!==id);
   await renderSO(); toast('Slettet');
+}
+
+// Kobl en nyoprettet forsendelse til salgsordren: pakkeindhold fra ordrelinjer,
+// ordre-status → afsendt og lagertræk (deductSOLines er guarded mod dobbelt-træk)
+async function linkShipmentToSO(soId, sid){
+  const so=allSO.find(s=>s.id===soId);
+  if(!so) return;
+  // Pakkeindhold fra ordrelinjer — gemmes direkte (uden modal-diff-lagertræk; trækket sker via deductSOLines)
+  const rows=(so.lines||[]).filter(l=>l.itemId).map(l=>({ id:l.itemId, qty:parseInt(l.qty)||1, price:l.salePrice||undefined }));
+  if(rows.length){
+    await jsonp({ action:'savePackageContents', shipment_id:sid, items_json:JSON.stringify(rows) });
+    if(!shipPackageContents[sid]) shipPackageContents[sid]={ items:[], status:'' };
+    shipPackageContents[sid].items=rows;
+    _skipShipIds.add(sid); // pakkeindholds-modalen må ikke trække lager igen for denne forsendelse
+  }
+  so.shipment_id=sid;
+  so.status='afsendt';
+  const deducted=await deductSOLines(so);
+  await jsonp({ action:'saveSalgsordre', ...soToRow(so) });
+  renderSO().catch(()=>{});
+  toast(deducted?`Ordre ${so.id} afsendt · lager fratrukket`:`Ordre ${so.id} koblet til forsendelsen`);
+}
+
+// Åbn "Ny forsendelse" pre-udfyldt med kundedata fra en salgsordre.
+// Ved oprettelse kobles forsendelsen til ordren (se submitShipment): pakkeindhold sættes
+// fra ordrelinjerne, status → afsendt og lagertræk køres (deducted-guard).
+async function createShipmentFromSO(soId){
+  await loadSO();
+  const so=allSO.find(s=>s.id===soId);
+  if(!so){ toast('Ordren findes ikke'); return; }
+  if(so.shipment_id){ toast('Der er allerede oprettet en forsendelse for denne ordre'); return; }
+  showTab('forsendelser');
+  await openNewShipmentModal();
+  window._shipmentSOId=soId; // sættes EFTER openNewShipmentModal (som nulstiller den)
+  const set=(id,val)=>{ const el=document.getElementById(id); if(el&&val) el.value=val; };
+  set('sh-rname', so.customer);
+  set('sh-raddr', so.address);
+  set('sh-rzip',  so.zip);
+  set('sh-rcity', so.city);
+  set('sh-remail',so.email);
+  set('sh-rphone',so.phone);
+  set('sh-ref',   so.id);
+  if(!so.address||!so.zip||!so.city) toast('Udfyld leveringsadresse — den mangler på ordren');
 }
 
 async function openSOPickList(soId){
