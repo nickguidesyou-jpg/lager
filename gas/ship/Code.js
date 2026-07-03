@@ -68,9 +68,12 @@ function doGet(e) {
     } else if (!validToken(p)) {
       result = { error: 'Ikke autoriseret' };
     } else if (action === 'getShipments')         result = getShipments(p);
+    else if (action === 'getProducts')     result = getProducts(p);
     else if (action === 'getPricingStats')   result = getPricingStats();
     else if (action === 'getSesuPrices')    result = getSesuPrices(p.forceRefresh);
+    else if (action === 'getPrinters')     result = getPrinters();
     else if (action === 'getLabel')        result = getLabel(p.id);
+    else if (action === 'createShipment')  result = createShipment(p);
     else if (action === 'getBalance')      result = getBalance();
     else if (action === 'getMonthlyStats')   result = getMonthlyStats();
     else if (action === 'getMonthlyHistory') result = getMonthlyHistory();
@@ -123,13 +126,16 @@ function doPost(e) {
     } else if (!validToken(p)) {
       result = { error: 'Ikke autoriseret' };
     } else if (action === 'getShipments')       result = getShipments(p);
+    else if (action === 'getProducts')           result = getProducts(p);
     else if (action === 'getPricingStats')        result = getPricingStats();
     else if (action === 'getSesuPrices')         result = getSesuPrices(p.forceRefresh);
+    else if (action === 'getPrinters')           result = getPrinters();
     else if (action === 'getLabel')              result = getLabel(p.id);
     else if (action === 'debugLabel')            result = debugLabel(p.id);
     else if (action === 'getBalance')            result = getBalance();
     else if (action === 'getMonthlyStats')       result = getMonthlyStats();
     else if (action === 'getMonthlyHistory')     result = getMonthlyHistory();
+    else if (action === 'createShipment')        result = createShipment(p);
     else if (action === 'sendReorderEmail')      result = sendReorderEmail(p);
     else if (action === 'claudeProxy')           result = claudeProxy(p);
     else result = { error: 'Ukendt handling: ' + action };
@@ -470,6 +476,11 @@ function getShipments(p) {
   return { shipments: Array.isArray(data) ? data : [] };
 }
 
+function getProducts(p) {
+  return shipmondoRequest('GET', 'products?country_code=' + (p.country || 'DK'));
+}
+
+
 function getSesuPrices(forceRefresh) {
   var cache = CacheService.getScriptCache();
   var KEY = 'sesu_prices_v9';
@@ -600,6 +611,10 @@ function getPricingStats() {
   return result;
 }
 
+function getPrinters() {
+  return shipmondoRequest('GET', 'printers');
+}
+
 function fetchLabelB64(url) {
   var props = getProps();
   var user = props.getProperty('SHIPMONDO_USER');
@@ -662,4 +677,47 @@ function sendReorderEmail(p) {
     body: p.body || ''
   });
   return { ok: true };
+}
+
+function createShipment(p) {
+  var payload = {
+    own_agreement: false,
+    label_format: p.label_format || 'a4_pdf',
+    product_code: p.product_code,
+    service_codes: p.service_codes || '',
+    reference: p.reference || '',
+    automatic_select_service_point: true,
+    parties: [
+      {
+        type: 'sender',
+        name: p.sender_name,
+        address1: p.sender_address,
+        postal_code: p.sender_zip,
+        city: p.sender_city,
+        country_code: 'DK',
+        email: p.sender_email || '',
+        phone: p.sender_phone || ''
+      },
+      {
+        type: 'receiver',
+        name: p.receiver_name,
+        address1: p.receiver_address,
+        postal_code: p.receiver_zip,
+        city: p.receiver_city,
+        country_code: p.receiver_country || 'DK',
+        email: p.receiver_email || '',
+        phone: p.receiver_phone || ''
+      }
+    ],
+    parcels: [{ weight: parseInt(p.weight_grams) || 1000 }]
+  };
+  if (p.printer_host && p.printer_name) {
+    payload.print = true;
+    payload.print_at = {
+      host_name: p.printer_host,
+      printer_name: p.printer_name,
+      label_format: p.printer_format || 'zpl'
+    };
+  }
+  return shipmondoRequest('POST', 'shipments', payload);
 }

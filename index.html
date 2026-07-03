@@ -1863,6 +1863,7 @@ body.compact .low-row { padding: 8px 16px; }
             </div>
             <button class="btn btn-ghost btn-sm" onclick="loadShipments()">⟳ Opdater</button>
           </div>
+          <button class="btn btn-primary" onclick="openNewShipmentModal()">+ Ny forsendelse</button>
         </div>
 
         <!-- Carrier filter -->
@@ -3288,6 +3289,19 @@ const SHIP_API = 'https://script.google.com/macros/s/AKfycbwtLFUm0lMDMg8arsAtYPR
 let shipLoaded = false;
 let shipPage = 1;
 let shipSearchTimer = null;
+let availableProducts = [];
+let availablePrinters = [];
+
+// Pre-filled sender info from Shipmondo account (Khaki ApS)
+const SENDER_INFO = {
+  name:    'Khaki ApS',
+  address: 'Næsbyvej 6',
+  zip:     '4200',
+  city:    'Slagelse',
+  email:   'vio@hellokhaki.dk',
+  phone:   '4243925633'
+};
+
 function shipSearchDebounce(){
   clearTimeout(shipSearchTimer);
   shipSearchTimer = setTimeout(()=>{ shipPage=1; loadShipments(); }, 400);
@@ -3581,6 +3595,242 @@ async function doPrintLabel(id){
     setTimeout(()=>URL.revokeObjectURL(blobUrl), 120000);
   } catch(e){ if(win) win.close(); alert('Fejl: '+e.message); }
 }
+
+async function openNewShipmentModal(){
+  // Load products if not loaded
+  if(!availableProducts.length){
+    try {
+      const d = await jsonpShip({ action:'getProducts', country:'DK' });
+      availableProducts = Array.isArray(d) ? d : (d.products||[]);
+    } catch(e) { availableProducts = []; }
+  }
+  if(!availablePrinters.length){
+    try {
+      const d = await jsonpShip({ action:'getPrinters' });
+      availablePrinters = Array.isArray(d) ? d : (d.printers||[]);
+    } catch(e) { availablePrinters = []; }
+  }
+
+  // Filter to DK sender only and deduplicate by code
+  const dkProducts = availableProducts
+    .filter(p => !p.sender_country_code || p.sender_country_code === 'DK')
+    .filter((p,i,arr) => arr.findIndex(x=>(x.code||x.product_code)===(p.code||p.product_code)) === i)
+    .sort((a,b)=>{
+      const ca = (a.carrier&&a.carrier.name)||'';
+      const cb2 = (b.carrier&&b.carrier.name)||'';
+      return ca.localeCompare(cb2,'da') || (a.name||'').localeCompare(b.name||'','da');
+    });
+
+  // Group by carrier for optgroup — use string concat to avoid nested template literal issues
+  const pgCarriers = {};
+  dkProducts.forEach(function(p){
+    const cn = (p.carrier&&p.carrier.name)||'Andet';
+    if(!pgCarriers[cn]) pgCarriers[cn] = [];
+    pgCarriers[cn].push(p);
+  });
+
+  let productOpts = '';
+  if(dkProducts.length){
+    Object.keys(pgCarriers).sort().forEach(function(cn){
+      productOpts += '<optgroup label="' + esc(cn) + '">';
+      pgCarriers[cn].forEach(function(p){
+        const val = esc(p.code||p.product_code||'');
+        const lbl = esc(p.name||p.code||p.product_code||'');
+        productOpts += '<option value="' + val + '" data-carrier="' + esc(cn) + '" data-pname="' + lbl + '">' + lbl + '</option>';
+      });
+      productOpts += '</optgroup>';
+    });
+  } else {
+    productOpts = '<option value="GLSDK_SD">GLS ShopDelivery</option><option value="GLSDK_BP">GLS BusinessParcel</option><option value="DAO_STH">dao daoHOME</option><option value="PDK_MC">PostNord Service Point</option>';
+  }
+
+
+
+  document.getElementById('modal-box').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">Ny forsendelse</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--surface-2);border:1px solid var(--border-light);border-radius:8px;padding:12px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Indsæt ordremail — AI udfylder automatisk</div>
+        <textarea id="sh-ai-paste" rows="4" placeholder="Indsæt ordrebekræftelse eller kundemail her…" style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--surface-1);color:var(--ink-1);font-family:inherit"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button id="sh-ai-btn" class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="aiParseShipment()">✦ Udfyld med AI</button>
+          <span id="sh-ai-status" style="font-size:12px;color:var(--ink-3)"></span>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)">Afsender</div>
+        <span style="font-size:11px;color:var(--ink-3);background:var(--surface-2);padding:2px 8px;border-radius:4px">Khaki ApS — pre-udfyldt</span>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Firmanavn</label><input id="sh-sname" value="${SENDER_INFO.name}"></div>
+        <div class="fg"><label>Telefon</label><input id="sh-sphone" value="${SENDER_INFO.phone}"></div>
+      </div>
+      <div class="fg"><label>Adresse</label><input id="sh-saddr" value="${SENDER_INFO.address}"></div>
+      <div class="form-row">
+        <div class="fg"><label>Postnr.</label><input id="sh-szip" value="${SENDER_INFO.zip}"></div>
+        <div class="fg"><label>By</label><input id="sh-scity" value="${SENDER_INFO.city}"></div>
+      </div>
+      <div class="fg"><label>Email</label><input id="sh-semail" type="email" value="${SENDER_INFO.email}"></div>
+
+      <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Modtager</div>
+      <div class="form-row">
+        <div class="fg"><label>Navn</label><input id="sh-rname" placeholder="Modtagers navn"></div>
+        <div class="fg"><label>Telefon</label><input id="sh-rphone" placeholder="+4512345678"></div>
+      </div>
+      <div class="fg"><label>Adresse</label><input id="sh-raddr" placeholder="Vejnavn og nummer"></div>
+      <div class="form-row">
+        <div class="fg"><label>Postnr.</label><input id="sh-rzip" placeholder="2100"></div>
+        <div class="fg"><label>By</label><input id="sh-rcity" placeholder="København Ø"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Land (ISO)</label><input id="sh-rcountry" value="DK" placeholder="DK"></div>
+        <div class="fg"><label>Email</label><input id="sh-remail" type="email" placeholder="kunde@email.dk"></div>
+      </div>
+
+      <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Forsendelse</div>
+      <div class="form-row">
+        <div class="fg"><label>Produkt</label><select id="sh-product" onchange="updateShipmentPrice()">${productOpts}</select></div>
+        <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1" oninput="updateShipmentPrice()"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Reference</label><input id="sh-ref" placeholder="Ordre nr."></div>
+        <div class="fg"><label>Label format</label><select id="sh-fmt"><option value="a4_pdf">A4 PDF</option><option value="10x19_pdf">10×19 PDF</option><option value="zpl">ZPL (label printer)</option></select></div>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:10px;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="sh-notify-email" checked style="width:15px;height:15px;cursor:pointer">
+          Email-notifikation til modtager
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="sh-notify-sms" checked style="width:15px;height:15px;cursor:pointer">
+          SMS-notifikation til modtager
+        </label>
+      </div>
+
+      <div style="height:1px;background:var(--border-light);margin:16px 0"></div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Prisestimering</div>
+      <div id="sh-price-est" style="font-size:13px"></div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Annuller</button>
+      <button class="btn btn-primary" onclick="submitShipment()">Opret forsendelse</button>
+    </div>`;
+  openModal();
+  setTimeout(updateShipmentPrice, 50);
+}
+
+async function aiParseShipment() {
+  const text = (document.getElementById('sh-ai-paste').value || '').trim();
+  if (!text) { document.getElementById('sh-ai-status').textContent = 'Indsæt mailtekst først'; return; }
+  const btn = document.getElementById('sh-ai-btn');
+  const status = document.getElementById('sh-ai-status');
+  btn.disabled = true;
+  status.textContent = 'Analyserer…';
+  try {
+    const res = await jsonpShip({
+      action: 'claudeProxy',
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: 'Du er en assistent der udtrækker leveringsoplysninger fra ordremails. Svar KUN med et JSON-objekt og intet andet — ingen forklaring, ingen markdown. Felter: name (fulde navn), address (vejnavn + nr), zip (postnr), city (bynavn), country (ISO 2-bogstav, default DK), email, phone, reference (ordre-/fakturanummer hvis nævnt). Sæt tomme strenge for manglende felter.',
+      messages: [{ role: 'user', content: 'Uddrag leveringsoplysninger fra denne tekst:\n\n' + text }]
+    }, 30000);
+    if (res.type === 'error' || res.error) {
+      const msg = res.error?.message || (typeof res.error === 'string' ? res.error : JSON.stringify(res.error));
+      throw new Error(msg);
+    }
+    const raw = res.content?.[0]?.text || '';
+    const json = raw.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) throw new Error('Uventet svar fra AI: ' + raw.slice(0,100));
+    const d = JSON.parse(json);
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('sh-rname',    d.name);
+    set('sh-raddr',    d.address);
+    set('sh-rzip',     d.zip);
+    set('sh-rcity',    d.city);
+    set('sh-rcountry', d.country || 'DK');
+    set('sh-remail',   d.email);
+    set('sh-rphone',   d.phone);
+    set('sh-ref',      d.reference);
+    status.textContent = '✓ Felter udfyldt — tjek venligst';
+    status.style.color = 'var(--green)';
+  } catch(e) {
+    status.textContent = 'Fejl: ' + (e.message || JSON.stringify(e));
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function submitShipment(){
+  const data = {
+    action: 'createShipment',
+    sender_name:    document.getElementById('sh-sname').value.trim(),
+    sender_address: document.getElementById('sh-saddr').value.trim(),
+    sender_zip:     document.getElementById('sh-szip').value.trim(),
+    sender_city:    document.getElementById('sh-scity').value.trim(),
+    sender_email:   document.getElementById('sh-semail').value.trim(),
+    sender_phone:   document.getElementById('sh-sphone').value.trim(),
+    receiver_name:    document.getElementById('sh-rname').value.trim(),
+    receiver_address: document.getElementById('sh-raddr').value.trim(),
+    receiver_zip:     document.getElementById('sh-rzip').value.trim(),
+    receiver_city:    document.getElementById('sh-rcity').value.trim(),
+    receiver_country: document.getElementById('sh-rcountry').value.trim()||'DK',
+    receiver_email:   document.getElementById('sh-remail').value.trim(),
+    receiver_phone:   document.getElementById('sh-rphone').value.trim(),
+    product_code:  document.getElementById('sh-product').value,
+    weight_grams:  document.getElementById('sh-weight').value,
+    reference:     document.getElementById('sh-ref').value.trim(),
+    label_format:  document.getElementById('sh-fmt').value,
+    service_codes: [
+      document.getElementById('sh-notify-email')?.checked ? 'EMAIL_NT' : '',
+      document.getElementById('sh-notify-sms')?.checked   ? 'SMS_NT'   : ''
+    ].filter(Boolean).join(','),
+    printer_host:  '',
+    printer_name:  '',
+    printer_format:''
+  };
+
+  if(!data.receiver_name||!data.receiver_address||!data.receiver_zip||!data.receiver_city){
+    toast('Udfyld modtagerens navn, adresse, postnr. og by'); return;
+  }
+  if(!data.sender_name||!data.sender_address||!data.sender_zip||!data.sender_city){
+    toast('Udfyld afsenderens navn, adresse, postnr. og by'); return;
+  }
+
+  closeModal();
+  toast('Opretter forsendelse…');
+
+  try {
+    const d = await jsonpShip({...data});
+    if(d.error) throw new Error(d.error);
+    toast('Forsendelse oprettet ✓');
+    // Sæt automatisk til "Under transport" ved oprettelse
+    if(d.id) {
+      const sid = String(d.id);
+      localStorage.setItem('ship_status_'+sid, 'in_transit');
+      if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
+      shipPackageContents[sid].status = 'in_transit';
+      jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: 'in_transit' }).catch(()=>{});
+    }
+    const labelUrl = d.label_url || d.pdf_uri;
+    if(labelUrl) setTimeout(()=>{
+      const win = window.open(labelUrl,'_blank');
+      if(win) setTimeout(()=>{ try{win.print();}catch(e){} }, 1500);
+    }, 500);
+    shipLoaded = false; // force reload
+    await loadShipments();
+  } catch(e) {
+    toast('Fejl: '+e.message);
+  }
+}
+
 
 // ── LAGERVÆRDI ──
 let totalLagervaerdi = 0;
@@ -4459,6 +4709,82 @@ function calcBedstePris(){
   }).filter(Boolean).join('');
 
   resEl.innerHTML=`<div style="border-top:1px solid var(--border)">${rows}</div>`;
+}
+
+function matchStaticPrice(carrierName, productLabel) {
+  const c = carrierName.toLowerCase();
+  const n = productLabel.toLowerCase();
+  return STATIC_PRICES.find(p => {
+    if(!c.includes(p.carrier.toLowerCase())) return false;
+    // Tjek om nogen ord fra STATIC_PRICES-navnet matcher produktlabelen
+    return p.name.toLowerCase().split(/[\s&(]+/).some(word => word.length > 2 && n.includes(word));
+  }) || null;
+}
+
+function updateShipmentPrice(){
+  const el = document.getElementById('sh-price-est');
+  if(!el) return;
+  const w = parseInt(document.getElementById('sh-weight')?.value || 0);
+  if(!w || w < 1) { el.innerHTML = '<span style="color:var(--ink-3)">Angiv vægt for at se prisestimering</span>'; return; }
+  if(w > 20000) { el.innerHTML = '<span style="color:var(--red)">Over 20 kg ikke understøttet</span>'; return; }
+
+  const sel = document.getElementById('sh-product');
+  if(!sel) return;
+
+  // Byg prisliste KUN fra de produkter der faktisk er i dropdown'en
+  const opts = [...sel.options];
+  const rows = [];
+  opts.forEach(o => {
+    if(!o.value) return; // skip optgroup-placeholder
+    const carrier = o.dataset.carrier || '';
+    const label   = o.dataset.pname || o.text || '';
+    const sp = matchStaticPrice(carrier, label);
+    const price = sp ? getStaticPrice(sp, w) : null;
+    rows.push({ value: o.value, carrier, label, price, selected: o === sel.options[sel.selectedIndex] });
+  });
+
+  // Sorter: produkter med kendte priser først (billigst→dyrest), dernæst ukendte
+  rows.sort((a, b) => {
+    if(a.price == null && b.price == null) return 0;
+    if(a.price == null) return 1;
+    if(b.price == null) return -1;
+    return a.price - b.price;
+  });
+
+  const withPrice = rows.filter(r => r.price != null);
+  const selectedRow = rows.find(r => r.selected);
+  const cheapest = withPrice[0];
+
+  let html = '';
+
+  // Valgt produkt — stor fremhævet pris
+  if(selectedRow) {
+    const price = selectedRow.price;
+    const saving = price != null && cheapest && cheapest.price < price ? price - cheapest.price : 0;
+    html += `<div style="display:flex;align-items:baseline;gap:10px;padding:10px 14px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:8px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:var(--accent)">${price != null ? fmtKr(price) : '—'}</span>
+      <span style="font-size:12px;color:var(--ink-2)">${esc(selectedRow.carrier)} · ${esc(selectedRow.label)}</span>
+      ${saving > 0.5 ? `<span style="font-size:11px;color:var(--amber);margin-left:auto">+${fmtKr(saving)} vs billigste</span>` : (price === cheapest?.price && withPrice.length > 1 ? '<span style="font-size:11px;color:var(--green);margin-left:auto">Billigst valg</span>' : '')}
+    </div>`;
+  }
+
+  // Liste over alle dropdown-muligheder med pris
+  const wLabel = w >= 1000 ? (w/1000).toFixed(1)+' kg' : w+' g';
+  html += `<div style="font-size:11px;color:var(--ink-3);margin-bottom:6px">Dine muligheder ved ${wLabel}:</div>`;
+  html += `<div style="display:flex;flex-direction:column;gap:2px">`;
+  html += rows.map((r, i) => {
+    const isSelected = r.selected;
+    const isCheapest = r.price != null && r.price === cheapest?.price;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;background:${isSelected ? 'var(--accent-dim)' : 'transparent'}" onclick="document.getElementById('sh-product').value='${r.value}';updateShipmentPrice()">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;width:72px;flex-shrink:0;color:${r.price==null?'var(--ink-3)':'inherit'}">${r.price != null ? fmtKr(r.price) : '—'}</span>
+      ${isCheapest ? '<span style="font-size:9px;font-weight:700;background:rgba(45,130,65,.2);color:#3cb371;border-radius:3px;padding:1px 5px;flex-shrink:0">BILLIGST</span>' : '<span style="width:51px;flex-shrink:0"></span>'}
+      <span style="font-size:12px;color:${isSelected?'var(--ink-1)':'var(--ink-2)'};font-weight:${isSelected?'600':'400'}">${esc(r.carrier)} · ${esc(r.label)}</span>
+      ${isSelected ? '<span style="margin-left:auto;font-size:10px;color:var(--accent)">valgt</span>' : ''}
+    </div>`;
+  }).join('');
+  html += `</div><div style="font-size:10px;color:var(--ink-3);margin-top:8px">Estimerede listepriser — klik en linje for at vælge</div>`;
+
+  el.innerHTML = html;
 }
 
 function renderStaticCarrierCards(){
