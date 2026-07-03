@@ -1552,8 +1552,10 @@ body.compact .low-row { padding: 8px 16px; }
             <div id="ov-low-low"></div>
           </div>
         </div>
+        <div id="ov-sesu-alerts" style="margin-top:16px"></div>
         <div id="ov-abc" style="margin-top:16px"></div>
         <div id="ov-damaged" style="margin-top:16px"></div>
+        <div id="ov-deadstock" style="margin-top:16px"></div>
         <div class="card" style="padding:20px;margin-top:16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ink-2)">Forsendelsesværdi — seneste 30 dage</div>
           <div style="height:180px;position:relative"><canvas id="shipment-chart"></canvas></div>
@@ -2188,7 +2190,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
 
 function renderOverviewABC(){
   const el=document.getElementById('ov-abc'); if(!el) return;
@@ -2223,6 +2225,45 @@ function renderOverviewABC(){
       </div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-3)">Baseret på bevægelseshistorik · <a href="#" onclick="showTab('rapporter');return false" style="color:var(--blue)">Se fuld analyse →</a></div>
+  </div>`;
+}
+
+function renderOverviewDeadStock(){
+  const el=document.getElementById('ov-deadstock'); if(!el) return;
+  if(!histLoaded||!histEntries.length){ el.innerHTML=''; return; } // kræver Historik-fanen besøgt (som ABC)
+  const DAYS=90;
+  const cutoff=Date.now()-DAYS*86400000;
+  const lastOut={}; // item_id → seneste udgående bevægelse (ms)
+  histEntries.forEach(h=>{
+    const delta=parseInt(h.to_qty||0)-parseInt(h.from_qty||0);
+    if(delta>=0) return;
+    const t=new Date(h.ts).getTime();
+    if(!isNaN(t)&&(!lastOut[h.item_id]||t>lastOut[h.item_id])) lastOut[h.item_id]=t;
+  });
+  const dead=items.filter(i=>parseInt(i.qty||0)>0 && (!lastOut[i.id]||lastOut[i.id]<cutoff));
+  if(!dead.length){ el.innerHTML=''; return; }
+  const itemVal=i=>{
+    const cost=parseFloat(i.costPrice||0)||(sesuPricesLoaded?(findSesuPrice(i.name,i.sku)?.price||0):0);
+    return cost*parseInt(i.qty||0);
+  };
+  const boundVal=dead.reduce((s,i)=>s+itemVal(i),0);
+  const daysSince=i=>lastOut[i.id]?Math.floor((Date.now()-lastOut[i.id])/86400000):null;
+  const sorted=[...dead].sort((a,b)=>(daysSince(b)??99999)-(daysSince(a)??99999));
+  el.innerHTML=`<div class="card" style="padding:16px 20px;border-left:3px solid var(--ink-3)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:600;color:var(--ink-2)">🧊 Dødt lager — ingen afgang i ${DAYS}+ dage (${dead.length})</div>
+      ${boundVal>0?`<div style="font-size:12px;color:var(--ink-3)">Bundet værdi: <strong style="font-family:'IBM Plex Mono',monospace">${boundVal.toLocaleString('da-DK',{maximumFractionDigits:0})} kr.</strong></div>`:''}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${sorted.slice(0,5).map(i=>{
+        const d=daysSince(i);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+          <span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="openItemModal('${i.id}',null)">${esc(i.name)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-3)">${parseInt(i.qty)} stk · ${d===null?'aldrig solgt':d+' dage'}</span>
+        </div>`;
+      }).join('')}
+      ${sorted.length>5?`<div style="font-size:11px;color:var(--ink-3);margin-top:2px">+ ${sorted.length-5} flere…</div>`:''}
+    </div>
   </div>`;
 }
 
@@ -2276,6 +2317,7 @@ async function loadSesuPrices(forceRefresh) {
       sesuPricesLoaded = true;
       if(statusEl) statusEl.textContent = '✓ ' + Object.keys(sesuPrices).length + ' priser';
       renderItems();
+      checkSesuPriceChanges();
     } else {
       if(statusEl) statusEl.textContent = '— fejl';
       _sesuPricesPromise = null; // allow retry
@@ -2358,6 +2400,80 @@ function findSesuPrice(itemName, itemSku, itemImageUrl){
     return { price: bestEntry.price, url: bestEntry.url||'', image: imgOk ? (itemImageUrl||bestEntry.image||'') : '', sesuName: bestEntry.name, how:'name' };
   }
   return itemImageUrl ? { price: null, url:'', image: itemImageUrl, how:'custom' } : null;
+}
+
+// ── SESU PRISALARM ──
+// Find sesu-sku'er der matcher egne varer (SKU-opslag eller navnematch)
+function matchedSesuSkus(){
+  const set=new Set();
+  items.forEach(i=>{
+    const sku=(i.sku||'').trim();
+    if(sku && sesuPrices[sku]!==undefined){ set.add(String(sku)); return; }
+    const m=findSesuPrice(i.name,i.sku);
+    if(m?.sesuName){ const e=sesuByName[normName(m.sesuName)]; if(e?.sku) set.add(String(e.sku)); }
+  });
+  return set;
+}
+
+function checkSesuPriceChanges(){
+  try{
+    const SNAP_KEY='lager_sesu_snapshot';
+    const mySkus=matchedSesuSkus();
+    let snap={};
+    try{ snap=JSON.parse(localStorage.getItem(SNAP_KEY)||'{}'); }catch(e){}
+    const changes=[];
+    sesuProducts.forEach(p=>{
+      if(!mySkus.has(String(p.sku))) return;
+      const old=snap[p.sku];
+      if(!old) return; // første observation af produktet — ingen alarm
+      if(old.price!=null && p.price!=null && old.price!==p.price)
+        changes.push({ type:'price', name:p.name, from:old.price, to:p.price });
+      if(!!old.outofstock!==!!p.outofstock)
+        changes.push({ type:'stock', name:p.name, to:!!p.outofstock });
+    });
+    const newSnap={};
+    sesuProducts.forEach(p=>{ if(mySkus.has(String(p.sku))) newSnap[p.sku]={ price:p.price, outofstock:!!p.outofstock }; });
+    localStorage.setItem(SNAP_KEY,JSON.stringify(newSnap));
+    if(changes.length){
+      localStorage.setItem('lager_sesu_changes',JSON.stringify({ ts:Date.now(), changes }));
+      toast(`⚠ ${changes.length} ændring${changes.length===1?'':'er'} på sesu.dk — se Oversigt`);
+    }
+    renderSesuAlerts();
+  }catch(e){}
+}
+
+function dismissSesuAlerts(){ localStorage.removeItem('lager_sesu_changes'); renderSesuAlerts(); }
+
+function renderSesuAlerts(){
+  const el=document.getElementById('ov-sesu-alerts'); if(!el) return;
+  let data=null;
+  try{ data=JSON.parse(localStorage.getItem('lager_sesu_changes')||'null'); }catch(e){}
+  if(!data?.changes?.length){ el.innerHTML=''; return; }
+  const when=new Date(data.ts).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  el.innerHTML=`<div class="card" style="padding:16px 20px;border-left:3px solid var(--blue)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:600;color:var(--blue)">🔔 sesu.dk ændringer (${data.changes.length})</div>
+      <div style="display:flex;gap:10px;align-items:baseline">
+        <span style="font-size:11px;color:var(--ink-3)">${when}</span>
+        <button class="btn btn-ghost btn-sm" onclick="dismissSesuAlerts()">Afvis</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${data.changes.map(c=>{
+        if(c.type==='price'){
+          const up=c.to>c.from;
+          return `<div style="display:flex;justify-content:space-between;font-size:13px">
+            <span>${esc(c.name)}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${up?'var(--red)':'var(--green)'}">${c.from.toLocaleString('da-DK')} → ${c.to.toLocaleString('da-DK')} kr. ${up?'▲':'▼'}</span>
+          </div>`;
+        }
+        return `<div style="display:flex;justify-content:space-between;font-size:13px">
+          <span>${esc(c.name)}</span>
+          <span style="font-size:12px;font-weight:600;color:${c.to?'var(--red)':'var(--green)'}">${c.to?'Udsolgt på sesu.dk':'Tilbage på lager hos sesu.dk'}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 async function assignSesuSku(itemId, sku) {
@@ -8277,9 +8393,10 @@ function scrollAI(){
   el.scrollTop = el.scrollHeight;
 }
 
-// ── SALGSORDRER (krypterede med AES-GCM) ──
+// ── SALGSORDRER (Google Sheets) ──
 let allSO = [];
-const SO_KEY = 'lager_so';
+const SO_KEY = 'lager_so'; // kun brugt til engangs-migrering fra gammelt localStorage-format
+let _soLoaded = false;
 
 async function getSOKey(){
   const token=sessionStorage.getItem('lager_token');
@@ -8288,36 +8405,71 @@ async function getSOKey(){
   return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
 }
 
-async function loadSO(){
+function soToRow(so){
+  return { id:so.id, created:String(so.created||''), customer:so.customer||'', date:so.date||'',
+           status:so.status||'ny', note:so.note||'', lines_json:JSON.stringify(so.lines||[]),
+           deducted:so.deducted||'' };
+}
+
+// Træk salgsordrens linjer fra lageret (kun én gang pr. ordre — markeres med deducted-flag)
+async function deductSOLines(so){
+  if(so.deducted==='1' || !so.lines?.length) return false;
+  so.deducted='1'; // sæt FØR trækket — hellere ét manglende træk (med fejlbesked) end dobbelt-træk ved retry
+  let changed=0, failed=0;
+  for(const l of so.lines){
+    const it=items.find(i=>i.id===l.itemId);
+    if(!it) continue;
+    const fromQty=parseInt(it.qty||0);
+    const newQty=Math.max(0, fromQty-(parseInt(l.qty)||0));
+    if(newQty===fromQty) continue;
+    try{
+      await jsonp({ ...it, qty:String(newQty), action:'saveItem' });
+      jsonp({ action:'logMovement', item_id:it.id, item_name:it.name, from_qty:String(fromQty), to_qty:String(newQty), note:'Salgsordre '+so.id+' afsendt' }).catch(()=>{});
+      it.qty=String(newQty);
+      changed++;
+    }catch(e){ failed++; }
+  }
+  if(failed) toast(failed+' varelinje(r) kunne ikke fratrækkes — justér beholdningen manuelt');
+  if(changed) renderItems();
+  return changed>0;
+}
+
+// Engangs-migrering: flyt gamle localStorage-salgsordrer (evt. AES-krypterede) til Google Sheets
+async function migrateSOFromLocalStorage(){
+  const stored=localStorage.getItem(SO_KEY);
+  if(!stored) return;
+  let old=[];
   try{
-    const stored=localStorage.getItem(SO_KEY);
-    if(!stored){ allSO=[]; return; }
     const parsed=JSON.parse(stored);
-    // Støtter både gammelt ukrypteret format (array) og nyt krypteret format (objekt med iv+data)
-    if(Array.isArray(parsed)){ allSO=parsed; return; }
-    if(parsed.iv&&parsed.data){
+    if(Array.isArray(parsed)) old=parsed;
+    else if(parsed.iv&&parsed.data){
       const key=await getSOKey();
       const iv=new Uint8Array(parsed.iv);
       const data=Uint8Array.from(atob(parsed.data),c=>c.charCodeAt(0));
       const dec=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,data);
-      allSO=JSON.parse(new TextDecoder().decode(dec));
-    } else { allSO=[]; }
-  }catch(e){ allSO=[]; }
+      old=JSON.parse(new TextDecoder().decode(dec));
+    }
+  }catch(e){ old=[]; }
+  for(const so of old){
+    const r=await jsonp({ action:'saveSalgsordre', ...soToRow(so) });
+    if(r?.error){ toast('Migrering af salgsordrer fejlede — prøver igen senere'); return; } // behold localStorage så vi kan prøve igen
+  }
+  localStorage.removeItem(SO_KEY);
+  if(old.length) toast(`${old.length} salgsordrer flyttet til Google Sheets ✓`);
 }
 
-async function saveSO(){
+async function loadSO(force=false){
+  if(_soLoaded && !force) return;
   try{
-    const key=await getSOKey();
-    const iv=crypto.getRandomValues(new Uint8Array(12));
-    const enc=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(allSO)));
-    const payload={iv:Array.from(iv),data:btoa(String.fromCharCode(...new Uint8Array(enc)))};
-    localStorage.setItem(SO_KEY,JSON.stringify(payload));
-  }catch(e){ toast('Kunne ikke gemme salgsordre — log ind igen'); }
+    await migrateSOFromLocalStorage();
+    const d=await jsonp({ action:'getSalgsordrer' });
+    if(Array.isArray(d)){ allSO=d.reverse(); _soLoaded=true; } // backend leverer nyeste først — vend til ældste-først som resten af koden forventer
+  }catch(e){ /* behold seneste kendte liste */ }
 }
 function genSOId(){ const d=new Date(); return 'SO-'+d.getFullYear()+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')+'-'+(allSO.length+1+'').padStart(3,'0'); }
 
 async function renderSO(){
-  await loadSO();
+  await loadSO(true);
   const ny=allSO.filter(s=>s.status==='ny').length;
   const pluk=allSO.filter(s=>s.status==='pluk').length;
   const pakket=allSO.filter(s=>s.status==='pakket').length;
@@ -8393,18 +8545,29 @@ async function saveSOModal(){
     return {itemId:sel.value,name:item?.name||sel.options[sel.selectedIndex]?.text||'',qty:parseInt(inps[0]?.value||1),salePrice:parseFloat(inps[1]?.value||0)||0};
   }).filter(Boolean);
   await loadSO();
+  let so;
   if(id){
     const idx=allSO.findIndex(s=>s.id===id);
-    if(idx>=0) allSO[idx]={...allSO[idx],customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines};
+    if(idx<0){ toast('Ordren findes ikke længere'); return; }
+    so=allSO[idx]={...allSO[idx],customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines};
   } else {
-    allSO.push({id:genSOId(),customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines,created:Date.now()});
+    so={id:genSOId(),customer,date:document.getElementById('so-date').value,status:document.getElementById('so-status').value,note:document.getElementById('so-note').value,lines,created:Date.now()};
+    allSO.push(so);
   }
-  await saveSO(); closeSOModal(); await renderSO(); toast('Salgsordre gemt');
+  // Automatisk lagertræk når ordren markeres afsendt (kun første gang)
+  let deducted=false;
+  if(so.status==='afsendt') deducted=await deductSOLines(so);
+  const r=await jsonp({ action:'saveSalgsordre', ...soToRow(so) });
+  if(r?.error){ toast('Fejl: '+r.error); return; }
+  closeSOModal(); await renderSO(); toast(deducted?'Salgsordre gemt · lager fratrukket':'Salgsordre gemt');
 }
 
 async function deleteSO(id){
   if(!confirm('Slet salgsordre?')) return;
-  await loadSO(); allSO=allSO.filter(s=>s.id!==id); await saveSO(); await renderSO(); toast('Slettet');
+  const r=await jsonp({ action:'deleteSalgsordre', id });
+  if(r?.error){ toast('Fejl: '+r.error); return; }
+  allSO=allSO.filter(s=>s.id!==id);
+  await renderSO(); toast('Slettet');
 }
 
 async function openSOPickList(soId){
@@ -8663,11 +8826,15 @@ function autoCreatePOFromList(){
       }).join('')}
       ${noSupp.length?`<div style="margin-top:12px;font-size:12px;color:var(--ink-3)">Varer uden leverandør: ${noSupp.map(i=>esc(i.name)).join(', ')}</div>`:''}
     </div>
-    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Luk</button>
+      ${withSupp.length>1?`<button class="btn" onclick="createAllAutoPOs(false)">⚡ Opret alle</button>`:''}
+      <button class="btn btn-primary" onclick="createAllAutoPOs(true)" title="Opretter én indkøbsordre pr. leverandør og mailer den direkte til leverandører med registreret e-mail">⚡ Opret alle + send mails</button>
+    </div>`;
   openModal();
 }
 
-async function createAutoPO(suppId){
+async function createAutoPO(suppId, opts={}){
   const low = items.filter(i=>(parseInt(i.qty||0)-parseInt(i.reserved||0))<parseInt(i.minQty||0) && i.supplier===suppId);
   const lev = allLeverandoerer.find(l=>l.id===suppId);
   const draftItems = low.map(i=>{
@@ -8680,14 +8847,46 @@ async function createAutoPO(suppId){
     : '';
   const po = { action:'saveIndkoebsordre', id:uid(), supplier_id:suppId, supplier_name:lev?.name||'',
     expected_date:expectedDate, notes:'Auto-oprettet fra indkøbsliste', status:'afventer',
-    items: draftItems };
-  sync('load','Opretter PO…');
+    items_json: JSON.stringify(draftItems) };
+  if(!opts.silent) sync('load','Opretter PO…');
   try {
     await jsonp(po);
     poLoaded=false;
-    toast(`PO oprettet for ${lev?.name||suppId} · ${draftItems.length} vare${draftItems.length===1?'':'r'}`);
-    showTab('indkoebsordrer');
-  } catch(e){ sync('err','Fejl'); showErr(e.message); }
+    let mailSent=false;
+    if(opts.sendMail && lev?.email){
+      const r=await jsonp({ action:'sendPOEmail', po_id:po.id, supplier_email:lev.email,
+        supplier_name:lev.name||'', expected_date:expectedDate, notes:po.notes,
+        items_json:JSON.stringify(draftItems) });
+      mailSent=!r?.error;
+    }
+    if(!opts.silent){
+      toast(`PO oprettet for ${lev?.name||suppId} · ${draftItems.length} vare${draftItems.length===1?'':'r'}`);
+      showTab('indkoebsordrer');
+    }
+    return { ok:true, mailSent };
+  } catch(e){
+    if(!opts.silent){ sync('err','Fejl'); showErr(e.message); }
+    return { ok:false, mailSent:false };
+  }
+}
+
+// Opret indkøbsordrer for ALLE leverandørgrupper med lav beholdning på én gang
+async function createAllAutoPOs(sendMail){
+  const low = items.filter(i=>(parseInt(i.qty||0)-parseInt(i.reserved||0))<parseInt(i.minQty||0));
+  const suppIds = [...new Set(low.map(i=>i.supplier).filter(Boolean))]
+    .filter(sid=>allLeverandoerer.some(l=>l.id===sid));
+  if(!suppIds.length){ toast('Ingen varer med tilknyttet leverandør'); return; }
+  closeModal();
+  sync('load','Opretter indkøbsordrer…');
+  let ok=0, mails=0, fail=0;
+  for(const sid of suppIds){
+    const res = await createAutoPO(sid, { silent:true, sendMail });
+    if(res.ok){ ok++; if(res.mailSent) mails++; } else fail++;
+  }
+  poLoaded=false;
+  try{ await loadIndkoebsordrer(); }catch(e){}
+  toast(`${ok} indkøbsordre${ok===1?'':'r'} oprettet${sendMail?` · ${mails} mail${mails===1?'':'s'} sendt`:''}${fail?` · ${fail} fejlede`:''}`);
+  showTab('indkoebsordrer');
 }
 
 // ── QUICK SCAN MODAL ──

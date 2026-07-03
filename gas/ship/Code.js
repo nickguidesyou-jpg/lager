@@ -113,6 +113,7 @@ function doPost(e) {
       props.setProperty('TOKEN_EXPIRY', '1');
       props.deleteProperty('DEVICE_TRUST_SECRET');
       props.deleteProperty('DEVICE_TRUST_EXPIRES');
+      props.deleteProperty('DEVICE_TRUST_LIST');
       result = { ok: true };
     } else if (action === 'verifyDeviceTrust') {
       result = verifyDeviceTrust(p);
@@ -290,19 +291,45 @@ function verifyStep2(p) {
   props.setProperty('TOTP_LOCK_UNTIL', '0');
   refreshExpiry(props); // Forny 12-timers session
 
-  // Udsted device-trust hemmelighed (separat fra session-token)
+  // Udsted device-trust hemmelighed (separat fra session-token) — flere enheder kan være betroet samtidig
   var deviceSecret = Utilities.getUuid().replace(/-/g, '');
-  props.setProperty('DEVICE_TRUST_SECRET',  deviceSecret);
-  props.setProperty('DEVICE_TRUST_EXPIRES', String(now + 24 * 60 * 60 * 1000));
+  var trustList = loadDeviceTrustList(props);
+  trustList.push({ secret: deviceSecret, expires: now + DEVICE_TRUST_TTL_MS });
+  saveDeviceTrustList(props, trustList);
   return { token: token, deviceSecret: deviceSecret };
 }
 
+var DEVICE_TRUST_MAX    = 5;
+var DEVICE_TRUST_TTL_MS = 24 * 60 * 60 * 1000;
+
+function loadDeviceTrustList(props) {
+  var list = [];
+  try { list = JSON.parse(props.getProperty('DEVICE_TRUST_LIST') || '[]'); } catch(e) { list = []; }
+  // Migrér gammelt enkelt-secret format til listen
+  var oldSecret = props.getProperty('DEVICE_TRUST_SECRET');
+  if (oldSecret) {
+    list.push({ secret: oldSecret, expires: parseInt(props.getProperty('DEVICE_TRUST_EXPIRES') || '0', 10) });
+    props.deleteProperty('DEVICE_TRUST_SECRET');
+    props.deleteProperty('DEVICE_TRUST_EXPIRES');
+  }
+  var now = Date.now();
+  return list.filter(function(d){ return d.secret && d.expires > now; });
+}
+
+function saveDeviceTrustList(props, list) {
+  list.sort(function(a, b){ return b.expires - a.expires; });
+  props.setProperty('DEVICE_TRUST_LIST', JSON.stringify(list.slice(0, DEVICE_TRUST_MAX)));
+}
+
 function verifyDeviceTrust(p) {
-  var props   = getProps();
-  var stored  = props.getProperty('DEVICE_TRUST_SECRET');
-  var expires = parseInt(props.getProperty('DEVICE_TRUST_EXPIRES') || '0', 10);
-  if (!stored || !p.deviceSecret || p.deviceSecret !== stored) return { error: 'Ugyldig enhed' };
-  if (Date.now() > expires) return { error: 'TOKEN_EXPIRED' };
+  var props = getProps();
+  var list  = loadDeviceTrustList(props);
+  saveDeviceTrustList(props, list); // gem oprydning af udløbne
+  var match = null;
+  for (var i = 0; i < list.length; i++) {
+    if (p.deviceSecret && list[i].secret === p.deviceSecret) { match = list[i]; break; }
+  }
+  if (!match) return { error: 'Ugyldig enhed' };
   refreshExpiry(props); // Forny session
   return { token: props.getProperty('LAGER_TOKEN') };
 }
@@ -483,7 +510,7 @@ function getProducts(p) {
 
 function getSesuPrices(forceRefresh) {
   var cache = CacheService.getScriptCache();
-  var KEY = 'sesu_prices_v9';
+  var KEY = 'sesu_prices_v10';
   if (!forceRefresh) {
     var cached = cache.get(KEY);
     if (cached) return JSON.parse(cached);
@@ -510,13 +537,15 @@ function getSesuPrices(forceRefresh) {
       if (mInStock)  outofstock = false;
       else if (mOutStock) outofstock = true;
 
-      var mSku   = chunk.match(/&quot;sku&quot;:&quot;([^&]*)&quot;/);
+      // sku kan være citeret streng ELLER rent tal (fx &quot;sku&quot;:12047) i datalaget
+      var mSku   = chunk.match(/&quot;sku&quot;:(?:&quot;([^&]*)&quot;|([0-9]+))/);
       var mPrice = chunk.match(/&quot;price&quot;:([0-9.]+)/);
       var mName  = chunk.match(/&quot;item_name&quot;:&quot;([^&]*)&quot;/);
-      // Product permalink: exclude shop, category, tag, page paths
-      var mUrl = chunk.match(/href="(https:\/\/sesu\.dk\/(?!shop\/|product-category\/|produktkategori\/|tag\/|page\/)[^"?#]{5,}\/?)"/);
+      // Produktpermalink: foretræk WooCommerce loop-product-link (kategorilinks har rel="tag")
+      var mUrl = chunk.match(/href="(https:\/\/sesu\.dk\/[^"?#]+?)"[^>]*class="[^"]*woocommerce-LoopProduct-link/);
+      if (!mUrl) mUrl = chunk.match(/href="(https:\/\/sesu\.dk\/(?!shop\/|product-category\/|produktkategori\/|tag\/|page\/)[^"?#]{5,}\/?)"/);
       if (!mSku) continue;
-      var sku   = mSku[1].trim();
+      var sku   = (mSku[1] || mSku[2] || '').trim();
       var price = mPrice ? parseFloat(mPrice[1]) : null;
       var name  = mName ? mName[1] : '';
       var url   = mUrl ? mUrl[1] : '';
@@ -528,12 +557,13 @@ function getSesuPrices(forceRefresh) {
       }
     }
 
-    // Fallback: any sku+price not caught above
-    var fallbacks = html.match(/sku&quot;:&quot;([^&]*)&quot;,&quot;price&quot;:([0-9.]+)/g) || [];
+    // Fallback: any sku+price not caught above (sku kan være citeret eller numerisk)
+    var fallbacks = html.match(/sku&quot;:(?:&quot;[^&]*&quot;|[0-9]+),&quot;price&quot;:[0-9.]+/g) || [];
     for (var j = 0; j < fallbacks.length; j++) {
-      var m = fallbacks[j].match(/sku&quot;:&quot;([^&]*)&quot;,&quot;price&quot;:([0-9.]+)/);
-      if (m && m[1] && !products[m[1].trim()]) {
-        products[m[1].trim()] = { price: parseFloat(m[2]), name: '', url: '' };
+      var m = fallbacks[j].match(/sku&quot;:(?:&quot;([^&]*)&quot;|([0-9]+)),&quot;price&quot;:([0-9.]+)/);
+      var fbSku = m ? (m[1] || m[2] || '').trim() : '';
+      if (fbSku && !products[fbSku]) {
+        products[fbSku] = { price: parseFloat(m[3]), name: '', url: '' };
       }
     }
   }

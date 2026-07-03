@@ -10,9 +10,9 @@ Live URL: https://nickguidesyou-jpg.github.io/lager/
 
 ## KRITISK REGEL — MÅ ALDRIG BRYDES
 
-**POST til Shipmondo `/shipments` endpoint er FORBUDT.**
+**Claude må ALDRIG selv kalde/teste Shipmondo `/shipments` POST (`createShipment`).**
 `dry_run: true` virker ikke — det opretter rigtige forsendelser der koster penge og ikke kan annulleres via API. Tidligere fejl kostede ~630 kr. for 12 utilsigtede forsendelser.
-Brug **KUN GET-endpoints** på Shipmondo. `createShipment` i Code.js eksisterer men må aldrig kaldes fra frontend.
+`createShipment` er en **bevidst brugerfunktion** ("+ Ny forsendelse"-knappen) som brugeren selv udløser — den må gerne eksistere og vedligeholdes, men Claude må aldrig kalde endpointet programmatisk, i tests eller via curl. Alle andre Shipmondo-kald skal være GET.
 
 ---
 
@@ -69,12 +69,13 @@ Begge er `fetch POST` med `Content-Type: text/plain` (undgår CORS-preflight). H
 - Bruger SHA-256-hash af password, sammenlignet med `LAGER_HASH` i Script Properties
 - Server returnerer statisk `LAGER_TOKEN` (gemt i sessionStorage)
 - TOTP 2FA via Google Authenticator (valgfrit)
-- Device trust: 24-timers cookie der springer TOTP over på kendte enheder
+- Device trust: 24-timers device-secret der springer TOTP over — op til 5 enheder samtidig (`DEVICE_TRUST_LIST` i Script Properties)
 
 ### Data
-- Varer, Rum, Historik, Skabeloner, Leverandoerer, Indkoebsordrer gemmes i Google Sheets
-- Salgsordrer gemmes **kun** i localStorage (AES-GCM krypteret med token som nøgle)
-- sesu.dk priser caches i Apps Script CacheService (6 timer, cache-nøgle: `sesu_prices_v9`)
+- Varer, Rum, Historik, Skabeloner, Leverandoerer, Indkoebsordrer, Salgsordrer gemmes i Google Sheets
+- Salgsordrer migreres automatisk fra det gamle AES-krypterede localStorage-format ved første indlæsning
+- sesu.dk priser caches i Apps Script CacheService (6 timer, cache-nøgle: `sesu_prices_v10`)
+- Prisalarm: frontend gemmer snapshot af matchede sesu-priser i localStorage og viser ændringer (pris/lagerstatus) som kort i Oversigt
 
 ---
 
@@ -122,7 +123,7 @@ Matching sker i to trin:
 
 Outofstock-detektion: CSS-klasse på listingside + JSON-LD availability + second-pass verifikation på produktside.
 
-**Kendt uløst bug:** V Stænger Hairpin 71cm MESSING og Skrå Trapez-bordben 71cm MESSING vises stadig som "udsolgt på sesu.dk" selvom de ikke er det. URLs: `sesu.dk/messing-v-hairpin-bordben-71cm-mat/` og `sesu.dk/messing-skraa-trapez-71cm/`
+**Vigtigt ved scraping-parsing:** sku i sesu.dk's datalag kan være både citeret streng (`&quot;sku&quot;:&quot;909&quot;`) og rent tal (`&quot;sku&quot;:12047`) — regexen skal håndtere begge. Produktpermalink identificeres via `class="woocommerce-LoopProduct-link"` (kategorilinks i samme chunk har `rel="tag"`).
 
 ---
 
@@ -147,7 +148,11 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - sesu.dk prissammenligning (scraping via Apps Script)
 - Partner-rapport (PDF-venlig, password-gate, KPI-kort, Top 5-sektioner)
 - Indkøbsordrer (PO-flow med modtagelse og pluk)
-- Forsendelser via Shipmondo (KUN visning — ingen oprettelse)
+- Samlet genbestilling: "⚡ Opret alle (+ send mails)" laver én PO pr. leverandør og mailer dem
+- Forsendelser via Shipmondo (visning + manuel oprettelse via "Ny forsendelse" — se kritisk regel)
+- Salgsordrer i Google Sheets med automatisk lagertræk når status sættes til "afsendt" (deducted-flag forhindrer dobbelt-træk)
+- Dødt lager-kort i Oversigt (varer uden afgang i 90+ dage, med bundet værdi)
+- sesu.dk prisalarm (kort i Oversigt ved pris-/lagerændringer på matchede varer)
 - TOTP 2FA med Google Authenticator
 - AI-lageranalyse via Claude (genbestillingsforslag m.m.)
 - PWA (offline-shell via service worker)
@@ -156,8 +161,6 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 
 ## Kendte begrænsninger
 
-- Salgsordrer overlever ikke hvis `LAGER_TOKEN` roteres (AES-nøgle afledt af token)
-- ABC-analyse og aktivitetsfeed kræver at Historik-fanen er besøgt mindst én gang
+- ABC-analyse, dødt lager-kort og aktivitetsfeed kræver at Historik-fanen er besøgt mindst én gang
 - sesu.dk-scraping kan fejle hvis siden ændrer struktur
-- `Math.random()` bruges til TOTP-secret generering (ikke kryptografisk sikker)
 - Ingen multi-user support — ét delt token
