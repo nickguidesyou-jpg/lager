@@ -152,6 +152,11 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - Forsendelser via Shipmondo (visning + manuel oprettelse via "Ny forsendelse" — se kritisk regel)
 - Salgsordrer i Google Sheets med automatisk lagertræk når status sættes til "afsendt" (deducted-flag forhindrer dobbelt-træk)
 - Salgsordre → forsendelse: "📦 Forsendelse"-knap pre-udfylder "Ny forsendelse" med kundedata; ved oprettelse kobles pakkeindhold fra ordrelinjer, ordren sættes til afsendt og lagertræk køres (`linkShipmentToSO`)
+- AI-salgsordre: "✦ Udfyld med AI" i salgsordre-modalen udtrækker kunde/adresse/varelinjer fra en indsat ordremail (varelinjer matches lokalt via `wordScore`, ukendte varer rapporteres)
+- Følgeseddel-print pr. salgsordre ("🖨 Følgeseddel" — print-side uden priser, med afsender/modtager/linjer/note)
+- Avance-dashboard i Oversigt: denne + forrige måneds omsætning/kostpris/bruttoavance fra afsendte salgsordrer
+- Enhedsnavn i historik: felt i Historik-fanen (localStorage `lager_device_name`) — sendes automatisk med alle `logMovement`-kald (device-kolonne i Historik-arket)
+- Cmd+K/Ctrl+K kommandopalette: søg på tværs af varer, salgsordrer, indkøbsordrer, forsendelser og faner
 - Returflow: markeres en forsendelse "Returneret" tilbydes at lægge pakkeindholdet tilbage på lager (guard: localStorage-flag + historik-note "Retur fra forsendelse X")
 - Dynamisk genbestillingspunkt: "⏳ Bestil snart"-kort i Oversigt (forbrug/dag × leveringstid × 1.2) + ✦ Auto-knap ved min-beholdning i vare-modalen
 - Historik hentes automatisk i baggrunden efter login (ABC/dødt lager/advarsler virker uden at besøge Historik-fanen)

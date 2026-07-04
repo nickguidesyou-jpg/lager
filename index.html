@@ -1553,6 +1553,7 @@ body.compact .low-row { padding: 8px 16px; }
           </div>
         </div>
         <div id="ov-sesu-alerts" style="margin-top:16px"></div>
+        <div id="ov-avance" style="margin-top:16px"></div>
         <div id="ov-reorder-dyn" style="margin-top:16px"></div>
         <div id="ov-abc" style="margin-top:16px"></div>
         <div id="ov-damaged" style="margin-top:16px"></div>
@@ -1829,7 +1830,8 @@ body.compact .low-row { padding: 8px 16px; }
             <input type="date" id="hist-to" title="Til dato" oninput="renderHistorik(histEntries)" style="font-size:12px;padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--ink)">
             <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hist-from').value='';document.getElementById('hist-to').value='';document.getElementById('hist-search').value='';renderHistorik(histEntries)">Ryd</button>
           </div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="hist-device-name" placeholder="Denne enheds navn…" title="Navnet logges med alle lagerbevægelser fra denne enhed" style="font-size:12px;padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--white);color:var(--ink);width:150px" onchange="localStorage.setItem('lager_device_name',this.value.trim());toast(this.value.trim()?'Enhedsnavn gemt: '+this.value.trim():'Enhedsnavn fjernet')">
             <button class="btn btn-ghost btn-sm" onclick="exportHistorikCSV()">⬇ CSV</button>
             <button class="btn btn-ghost btn-sm" onclick="histLoaded=false;loadHistorik()">⟳ Opdater</button>
           </div>
@@ -2012,6 +2014,14 @@ body.compact .low-row { padding: 8px 16px; }
     </div>
     <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
       <input type="hidden" id="so-id">
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Indsæt ordremail — AI udfylder kunde og varelinjer</div>
+        <textarea id="so-ai-paste" rows="3" placeholder="Indsæt kundens ordremail her…" style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button id="so-ai-btn" class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="aiParseSO()">✦ Udfyld med AI</button>
+          <span id="so-ai-status" style="font-size:12px;color:var(--ink-3)"></span>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Kundenavn</label>
           <input id="so-customer" type="text" placeholder="Navn eller firma" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
@@ -2054,6 +2064,16 @@ body.compact .low-row { padding: 8px 16px; }
       <button class="btn btn-ghost" onclick="closeSOModal()">Annuller</button>
       <button class="btn btn-primary" onclick="saveSOModal()">Gem ordre</button>
     </div>
+  </div>
+</div>
+
+<!-- CMD+K KOMMANDOPALETTE -->
+<div id="cmdk-overlay" onclick="if(event.target===this)closeCmdK()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9500;align-items:flex-start;justify-content:center;padding-top:12vh">
+  <div style="width:min(560px,94vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.3);overflow:hidden">
+    <input id="cmdk-input" placeholder="Søg varer, salgsordrer, indkøbsordrer, forsendelser…" oninput="renderCmdK()" onkeydown="cmdkKey(event)" autocomplete="off"
+      style="width:100%;box-sizing:border-box;padding:16px 18px;border:none;border-bottom:1px solid var(--border);font-size:15px;font-family:inherit;background:var(--white);color:var(--ink);outline:none">
+    <div id="cmdk-results" style="max-height:50vh;overflow-y:auto"></div>
+    <div style="padding:8px 16px;font-size:11px;color:var(--ink-3);border-top:1px solid var(--border)">↑↓ navigér · Enter åbn · Esc luk</div>
   </div>
 </div>
 
@@ -2147,6 +2167,8 @@ function showErr(m){
 
 async function jsonp(params, timeoutMs=12000){
   const token = sessionStorage.getItem('lager_token') || '';
+  // Enhedsnavn logges med alle lagerbevægelser (hvem gjorde hvad)
+  if(params.action==='logMovement' && !params.device) params = {...params, device: localStorage.getItem('lager_device_name')||''};
   const ctrl = new AbortController();
   const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
   try {
@@ -2205,7 +2227,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderOverviewAvance(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
 
 function renderOverviewABC(){
   const el=document.getElementById('ov-abc'); if(!el) return;
@@ -2240,6 +2262,59 @@ function renderOverviewABC(){
       </div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-3)">Baseret på bevægelseshistorik · <a href="#" onclick="showTab('rapporter');return false" style="color:var(--blue)">Se fuld analyse →</a></div>
+  </div>`;
+}
+
+// ── AVANCE-DASHBOARD ──
+function calcMonthAvance(year, month){ // month: 0-11 — kun afsendte ordrer (realiseret omsætning)
+  let revenue=0, cost=0, orders=0;
+  allSO.forEach(so=>{
+    if(so.status!=='afsendt'||!so.date) return;
+    const d=new Date(so.date);
+    if(d.getFullYear()!==year||d.getMonth()!==month) return;
+    orders++;
+    (so.lines||[]).forEach(l=>{
+      const qty=parseInt(l.qty)||0;
+      revenue+=qty*(parseFloat(l.salePrice)||0);
+      const it=items.find(i=>i.id===l.itemId);
+      cost+=qty*(parseFloat(it?.costPrice)||0);
+    });
+  });
+  return { revenue, cost, margin:revenue-cost, pct:revenue>0?Math.round((revenue-cost)/revenue*100):0, orders };
+}
+
+function renderOverviewAvance(){
+  const el=document.getElementById('ov-avance'); if(!el) return;
+  if(!_soLoaded){
+    if(!window._avanceLoading){
+      window._avanceLoading=true;
+      loadSO().then(()=>renderOverviewAvance()).catch(()=>{}).finally(()=>{ window._avanceLoading=false; });
+    }
+    el.innerHTML=''; return;
+  }
+  const now=new Date();
+  const cur=calcMonthAvance(now.getFullYear(), now.getMonth());
+  const prevDate=new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const prev=calcMonthAvance(prevDate.getFullYear(), prevDate.getMonth());
+  if(!cur.orders&&!prev.orders){ el.innerHTML=''; return; }
+  const MONTHS=['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
+  const kr=v=>v.toLocaleString('da-DK',{maximumFractionDigits:0})+' kr.';
+  const col=(label,m)=>`<div style="flex:1;min-width:180px;background:var(--surface-2);border-radius:var(--radius);padding:12px 16px;border:1px solid var(--border)">
+    <div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase">${label} · ${m.orders} afsendt${m.orders===1?'':'e'}</div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:8px"><span style="color:var(--ink-3)">Omsætning</span><span style="font-family:'IBM Plex Mono',monospace">${kr(m.revenue)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span style="color:var(--ink-3)">Kostpris</span><span style="font-family:'IBM Plex Mono',monospace">${kr(m.cost)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+      <span>Bruttoavance</span>
+      <span style="font-family:'IBM Plex Mono',monospace;color:${m.margin>=0?'var(--green)':'var(--red)'}">${kr(m.margin)}${m.revenue>0?' ('+m.pct+'%)':''}</span>
+    </div>
+  </div>`;
+  el.innerHTML=`<div class="card" style="padding:16px 20px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ink-2)">💰 Avance — afsendte salgsordrer</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${col(MONTHS[now.getMonth()], cur)}
+      ${col(MONTHS[prevDate.getMonth()], prev)}
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--ink-3)">Kostpris fra varernes aktuelle kostpris · kun ordrer med status "Afsendt" tælles</div>
   </div>`;
 }
 
@@ -3414,7 +3489,11 @@ function showTab(t){
   if(t === 'indkoebsordrer') { if(!poLoaded) loadIndkoebsordrer(); else renderIndkoebsordrer(); }
   if(t === 'salgsordrer') renderSO();
   if(t === 'indkob') priceReady.then(()=>renderIndkob());
-  if(t === 'historik' && !histLoaded) loadHistorik().catch(()=>{});
+  if(t === 'historik'){
+    if(!histLoaded) loadHistorik().catch(()=>{});
+    const dn=document.getElementById('hist-device-name');
+    if(dn && !dn.value) dn.value=localStorage.getItem('lager_device_name')||'';
+  }
 }
 
 function openModal(){
@@ -7681,7 +7760,7 @@ function renderHistorik(entries){
       <td><div class="td-name" style="cursor:pointer" onclick="openItemModal('${esc(e.item_id)}',null)">${esc(e.item_name||'—')}</div>${item?catBadge(item.cat):''}</td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${esc(e.from_qty)} → ${esc(e.to_qty)}</td>
       <td>${deltaHtml}</td>
-      <td style="font-size:12px;color:var(--ink-3)">${esc(e.note||'')}</td>
+      <td style="font-size:12px;color:var(--ink-3)">${esc(e.note||'')}${e.device?`<div style="font-size:10px;opacity:.75;margin-top:2px">📱 ${esc(e.device)}</div>`:''}</td>
     </tr>`;
   }).join('');
   if(countEl) countEl.textContent=fil.length>300?`Viser 300 af ${fil.length} bevægelser`:`${fil.length} bevægelse${fil.length===1?'':'r'}`;
@@ -8593,6 +8672,7 @@ async function renderSO(){
         ?`<span class="badge badge-green" title="Forsendelse ${esc(so.shipment_id)} er oprettet">📦 ✓</span>`
         :`<button class="btn btn-ghost btn-sm" onclick="createShipmentFromSO('${so.id}')" title="Opret forsendelse med kundedata og pakkeindhold fra ordren">📦 Forsendelse</button>`}
       <button class="btn btn-ghost btn-sm" onclick="openSOPickList('${so.id}')">📋 Plukliste</button>
+      <button class="btn btn-ghost btn-sm" onclick="printFollowSeddel('${so.id}')" title="Print følgeseddel til pakken">🖨 Følgeseddel</button>
       <button class="btn btn-ghost btn-sm" onclick="openSOModal('${so.id}')">Rediger</button>
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteSO('${so.id}')">Slet</button>
     </td>
@@ -8603,6 +8683,8 @@ async function openSOModal(id){
   await loadSO();
   const so=id?allSO.find(s=>s.id===id):null;
   document.getElementById('so-modal-title').textContent=so?'Rediger salgsordre':'Ny salgsordre';
+  const aiPaste=document.getElementById('so-ai-paste'); if(aiPaste) aiPaste.value='';
+  const aiStatus=document.getElementById('so-ai-status'); if(aiStatus) aiStatus.textContent='';
   document.getElementById('so-id').value=so?.id||'';
   document.getElementById('so-customer').value=so?.customer||'';
   document.getElementById('so-date').value=so?.date||new Date().toISOString().slice(0,10);
@@ -8620,6 +8702,69 @@ async function openSOModal(id){
   const ov=document.getElementById('so-modal-overlay'); ov.style.display='flex';
 }
 function closeSOModal(){ document.getElementById('so-modal-overlay').style.display='none'; }
+
+async function aiParseSO(){
+  const text=(document.getElementById('so-ai-paste').value||'').trim();
+  const status=document.getElementById('so-ai-status');
+  if(!text){ status.textContent='Indsæt mailtekst først'; return; }
+  const btn=document.getElementById('so-ai-btn');
+  btn.disabled=true;
+  status.style.color='var(--ink-3)';
+  status.textContent='Analyserer…';
+  try{
+    const res=await jsonpShip({
+      action:'claudeProxy',
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:600,
+      system:'Du er en assistent der udtrækker ordreoplysninger fra kundemails. Svar KUN med et JSON-objekt og intet andet — ingen forklaring, ingen markdown. Felter: customer (fulde navn eller firma), address (vejnavn + nr), zip (postnr), city (bynavn), email, phone, note (særlige ønsker/leveringsinstrukser, kort), lines (array af {product: varenavn som nævnt i mailen, qty: antal som heltal, default 1}). Sæt tomme strenge/tomt array for manglende felter.',
+      messages:[{ role:'user', content:'Uddrag ordreoplysninger fra denne tekst:\n\n'+text }]
+    }, 30000);
+    if(res.type==='error'||res.error){
+      const msg=res.error?.message||(typeof res.error==='string'?res.error:JSON.stringify(res.error));
+      throw new Error(msg);
+    }
+    const raw=res.content?.[0]?.text||'';
+    const json=raw.match(/\{[\s\S]*\}/)?.[0];
+    if(!json) throw new Error('Uventet svar fra AI: '+raw.slice(0,100));
+    const d=JSON.parse(json);
+    const set=(id,val)=>{ const el=document.getElementById(id); if(el&&val) el.value=val; };
+    set('so-customer', d.customer);
+    set('so-address',  d.address);
+    set('so-zip',      d.zip);
+    set('so-city',     d.city);
+    set('so-email',    d.email);
+    set('so-phone',    d.phone);
+    set('so-note',     d.note);
+    // Match varelinjer mod egne varer (samme navnematching som sesu-priserne)
+    const unmatched=[];
+    const matched=[];
+    (Array.isArray(d.lines)?d.lines:[]).forEach(l=>{
+      const pn=normName(String(l.product||''));
+      if(!pn){ return; }
+      let best=null, bestScore=0;
+      items.forEach(i=>{
+        const s=wordScore(pn, normName(i.name));
+        if(s>bestScore){ bestScore=s; best=i; }
+      });
+      const qty=Math.max(1,parseInt(l.qty)||1);
+      if(best&&bestScore>=0.28) matched.push({ item:best, qty });
+      else unmatched.push(l.product);
+    });
+    if(matched.length){
+      document.getElementById('so-lines').innerHTML='';
+      matched.forEach(m=>appendSOLine(m.item.id, m.item.name, m.qty, ''));
+    }
+    status.style.color=unmatched.length?'var(--amber)':'var(--green)';
+    status.textContent=matched.length
+      ? `✓ ${matched.length} linje${matched.length===1?'':'r'} udfyldt${unmatched.length?` · ukendt: ${unmatched.join(', ').slice(0,80)}`:''} — tjek venligst`
+      : (unmatched.length?`Kundedata udfyldt · ingen varer matchede: ${unmatched.join(', ').slice(0,80)}`:'✓ Kundedata udfyldt — tjek venligst');
+  }catch(e){
+    status.style.color='var(--red)';
+    status.textContent='Fejl: '+(e.message||JSON.stringify(e));
+  }finally{
+    btn.disabled=false;
+  }
+}
 
 function appendSOLine(itemId='',name='',qty=1,salePrice=''){
   const linesEl=document.getElementById('so-lines');
@@ -8683,6 +8828,66 @@ async function deleteSO(id){
   if(r?.error){ toast('Fejl: '+r.error); return; }
   allSO=allSO.filter(s=>s.id!==id);
   await renderSO(); toast('Slettet');
+}
+
+// Print-venlig følgeseddel til at lægge i pakken (ingen priser)
+async function printFollowSeddel(soId){
+  await loadSO();
+  const so=allSO.find(s=>s.id===soId);
+  if(!so){ toast('Ordren findes ikke'); return; }
+  const lines=(so.lines||[]).map(l=>{
+    const it=items.find(i=>i.id===l.itemId);
+    return { name:l.name||it?.name||'—', sku:it?.sku||'', qty:parseInt(l.qty)||1 };
+  });
+  const win=window.open('','_blank');
+  if(!win){ toast('Pop-up blokeret — tillad pop-ups for at printe'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>Følgeseddel ${esc(so.id)}</title>
+  <style>
+    body{font-family:-apple-system,'Segoe UI',sans-serif;color:#1a1a1a;max-width:700px;margin:40px auto;padding:0 24px;font-size:14px;line-height:1.5}
+    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1a1a1a;padding-bottom:16px;margin-bottom:24px}
+    h1{font-size:22px;margin:0 0 4px}
+    .muted{color:#666;font-size:12px}
+    .blocks{display:flex;justify-content:space-between;gap:24px;margin-bottom:28px}
+    .block h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#666;margin:0 0 6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:24px}
+    th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#666;border-bottom:1.5px solid #1a1a1a;padding:6px 8px}
+    td{padding:8px;border-bottom:1px solid #ddd}
+    .qty{font-weight:700;width:60px;text-align:center}
+    .note{background:#f5f5f0;border-radius:6px;padding:12px;font-size:13px;margin-bottom:24px}
+    .foot{margin-top:36px;font-size:12px;color:#666;text-align:center}
+    @media print{ body{margin:0 auto} }
+  </style></head><body>
+  <div class="head">
+    <div>
+      <h1>Følgeseddel</h1>
+      <div class="muted">Ordre ${esc(so.id)} · ${esc(so.date||new Date().toISOString().slice(0,10))}</div>
+    </div>
+    <div style="text-align:right">
+      <strong>${esc(SENDER_INFO.name)}</strong><br>
+      <span class="muted">${esc(SENDER_INFO.address)}<br>${esc(SENDER_INFO.zip)} ${esc(SENDER_INFO.city)}<br>${esc(SENDER_INFO.email)}</span>
+    </div>
+  </div>
+  <div class="blocks">
+    <div class="block">
+      <h3>Leveres til</h3>
+      <strong>${esc(so.customer||'—')}</strong><br>
+      ${so.address?esc(so.address)+'<br>':''}
+      ${(so.zip||so.city)?esc((so.zip||'')+' '+(so.city||''))+'<br>':''}
+      ${so.phone?'<span class="muted">Tlf: '+esc(so.phone)+'</span><br>':''}
+      ${so.email?'<span class="muted">'+esc(so.email)+'</span>':''}
+    </div>
+  </div>
+  <table>
+    <thead><tr><th class="qty">Antal</th><th>Vare</th><th style="width:120px">Varenr.</th></tr></thead>
+    <tbody>
+      ${lines.map(l=>`<tr><td class="qty">${l.qty}</td><td>${esc(l.name)}</td><td class="muted">${esc(l.sku||'—')}</td></tr>`).join('')}
+    </tbody>
+  </table>
+  ${so.note?`<div class="note"><strong>Note:</strong> ${esc(so.note)}</div>`:''}
+  <div class="foot">Tak for din ordre · ${esc(SENDER_INFO.name)} · ${esc(SENDER_INFO.email)}</div>
+  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 300); };<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 // Kobl en nyoprettet forsendelse til salgsordren: pakkeindhold fra ordrelinjer,
@@ -8939,6 +9144,80 @@ function openShortcutsModal(){
 document.addEventListener('keydown', e => {
   if(e.key==='?' && !e.target.matches('input,textarea,select')) openShortcutsModal();
 });
+
+// ── CMD+K KOMMANDOPALETTE ──
+let _cmdkResults=[], _cmdkSel=0;
+
+document.addEventListener('keydown', e => {
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    if(!sessionStorage.getItem('lager_token')) return;
+    const ov=document.getElementById('cmdk-overlay');
+    if(ov.style.display==='flex') closeCmdK(); else openCmdK();
+  }
+});
+
+function openCmdK(){
+  const ov=document.getElementById('cmdk-overlay');
+  ov.style.display='flex';
+  const inp=document.getElementById('cmdk-input');
+  inp.value=''; _cmdkSel=0;
+  renderCmdK();
+  setTimeout(()=>inp.focus(),50);
+  // Sørg for at salgsordrer er søgbare selv hvis fanen ikke er besøgt
+  if(!_soLoaded) loadSO().then(()=>renderCmdK()).catch(()=>{});
+}
+function closeCmdK(){ document.getElementById('cmdk-overlay').style.display='none'; }
+
+function buildCmdKIndex(){
+  const ix=[];
+  const TABS=[['Oversigt','oversigt'],['Varer','varer'],['Forsendelser','forsendelser'],['Fragtpriser','priser'],
+    ['Indkøb','indkob'],['Historik','historik'],['Optælling','optaelling'],['Modtagelse','modtagelse'],
+    ['Leverandører','leverandoerer'],['Indkøbsordrer','indkoebsordrer'],['Salgsordrer','salgsordrer'],['Rapporter','rapporter']];
+  TABS.forEach(([label,tab])=>ix.push({ type:'Fane', icon:'→', label:'Gå til '+label, sub:'', key:('gå til '+label).toLowerCase(), run:()=>showTab(tab) }));
+  items.forEach(i=>ix.push({ type:'Vare', icon:'📦', label:i.name, sub:(i.sku?i.sku+' · ':'')+(i.qty||0)+' stk',
+    key:(i.name+' '+(i.sku||'')).toLowerCase(), run:()=>{ showTab('varer'); openItemModal(i.id,null); } }));
+  allSO.forEach(s=>ix.push({ type:'Salgsordre', icon:'🛍', label:s.id+' — '+(s.customer||'—'), sub:s.status||'',
+    key:(s.id+' '+(s.customer||'')).toLowerCase(), run:()=>{ showTab('salgsordrer'); openSOModal(s.id); } }));
+  allPO.forEach(p=>ix.push({ type:'Indkøbsordre', icon:'📋', label:'PO '+(p.id||'').slice(-6).toUpperCase()+' — '+(p.supplier_name||'—'), sub:p.status||'',
+    key:((p.id||'')+' '+(p.supplier_name||'')).toLowerCase(), run:()=>{ showTab('indkoebsordrer'); openPOModal(p.id); } }));
+  allShips.forEach(s=>ix.push({ type:'Forsendelse', icon:'🚚', label:String(s.reference||s.id||'—'), sub:String(s.id||''),
+    key:(String(s.id||'')+' '+String(s.reference||'')).toLowerCase(), run:()=>{ showTab('forsendelser'); const se=document.getElementById('ship-search'); if(se){ se.value=String(s.reference||s.id||''); } loadShipments(); } }));
+  return ix;
+}
+
+function renderCmdK(){
+  const q=(document.getElementById('cmdk-input').value||'').trim().toLowerCase();
+  const ix=buildCmdKIndex();
+  _cmdkResults=q ? ix.filter(r=>r.key.includes(q)).slice(0,10) : ix.slice(0,8);
+  if(_cmdkSel>=_cmdkResults.length) _cmdkSel=0;
+  const el=document.getElementById('cmdk-results');
+  if(!_cmdkResults.length){ el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink-3);font-size:13px">Ingen resultater</div>'; return; }
+  el.innerHTML=_cmdkResults.map((r,i)=>`
+    <div onclick="cmdkRun(${i})" onmousemove="if(_cmdkSel!==${i}){_cmdkSel=${i};renderCmdK();}"
+      style="display:flex;align-items:center;gap:12px;padding:10px 18px;cursor:pointer;background:${i===_cmdkSel?'var(--accent-dim, var(--surface-2))':'transparent'}">
+      <span style="font-size:16px;width:22px;text-align:center;flex-shrink:0">${r.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.label)}</div>
+        ${r.sub?`<div style="font-size:11px;color:var(--ink-3)">${esc(r.sub)}</div>`:''}
+      </div>
+      <span class="badge badge-gray" style="flex-shrink:0">${r.type}</span>
+    </div>`).join('');
+}
+
+function cmdkRun(i){
+  const r=_cmdkResults[i];
+  if(!r) return;
+  closeCmdK();
+  try{ r.run(); }catch(e){ toast('Kunne ikke åbne: '+e.message); }
+}
+
+function cmdkKey(e){
+  if(e.key==='ArrowDown'){ e.preventDefault(); _cmdkSel=Math.min(_cmdkSel+1,_cmdkResults.length-1); renderCmdK(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); _cmdkSel=Math.max(_cmdkSel-1,0); renderCmdK(); }
+  else if(e.key==='Enter'){ e.preventDefault(); cmdkRun(_cmdkSel); }
+  else if(e.key==='Escape'){ closeCmdK(); }
+}
 
 // ── AUTO-PO FRA INDKØBSLISTE ──
 function autoCreatePOFromList(){
