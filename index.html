@@ -1554,6 +1554,7 @@ body.compact .low-row { padding: 8px 16px; }
         </div>
         <div id="ov-sesu-alerts" style="margin-top:16px"></div>
         <div id="ov-avance" style="margin-top:16px"></div>
+        <div id="ov-lagervaerdi-graf" style="margin-top:16px"></div>
         <div id="ov-reorder-dyn" style="margin-top:16px"></div>
         <div id="ov-abc" style="margin-top:16px"></div>
         <div id="ov-damaged" style="margin-top:16px"></div>
@@ -1925,6 +1926,13 @@ body.compact .low-row { padding: 8px 16px; }
           </div>
         </div>
         <div id="so-stats" class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <div class="search-input-wrap" style="min-width:200px">
+            <span class="search-icon">⌕</span>
+            <input type="text" id="so-search" placeholder="Søg ordre eller kunde…" oninput="window._soQ=this.value;renderSOTable()">
+          </div>
+          <div id="so-status-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
         <div class="card">
           <div class="table-wrap">
             <table>
@@ -2024,7 +2032,8 @@ body.compact .low-row { padding: 8px 16px; }
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Kundenavn</label>
-          <input id="so-customer" type="text" placeholder="Navn eller firma" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
+          <input id="so-customer" type="text" placeholder="Navn eller firma" list="so-customer-list" onchange="fillCustomerFromHistory()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+          <datalist id="so-customer-list"></datalist></div>
         <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Dato</label>
           <input id="so-date" type="date" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
       </div>
@@ -2227,7 +2236,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderOverviewAvance(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderOverviewAvance(); renderOverviewLagervaerdiGraf(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
 
 function renderOverviewABC(){
   const el=document.getElementById('ov-abc'); if(!el) return;
@@ -2318,6 +2327,67 @@ function renderOverviewAvance(){
   </div>`;
 }
 
+// ── LAGERVÆRDI OVER TID ──
+let _lvHist=null, _lvLoading=false;
+
+function renderOverviewLagervaerdiGraf(){
+  const el=document.getElementById('ov-lagervaerdi-graf'); if(!el) return;
+  if(_lvHist===null){
+    if(!_lvLoading){
+      _lvLoading=true;
+      jsonp({ action:'getLagervaerdi' })
+        .then(d=>{ _lvHist=(d&&d.entries)||[]; renderOverviewLagervaerdiGraf(); })
+        .catch(()=>{ _lvHist=[]; })
+        .finally(()=>{ _lvLoading=false; });
+    }
+    el.innerHTML=''; return;
+  }
+  const pts=_lvHist.filter(e=>e.total_cost>0);
+  const snapBtn=`<button class="btn btn-ghost btn-sm" onclick="takeLagervaerdiSnapshot()" title="Gem dagens lagerværdi som datapunkt">📸 Snapshot nu</button>`;
+  if(pts.length<2){
+    el.innerHTML=`<div class="card" style="padding:16px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div style="font-size:13px;font-weight:600;color:var(--ink-2)">📈 Lagerværdi over tid</div>${snapBtn}
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:8px">${pts.length===0?'Ingen snapshots endnu':'1 snapshot gemt'} — grafen vises fra 2 datapunkter. Der tages automatisk et ugentligt snapshot sammen med backuppen.</div>
+    </div>`;
+    return;
+  }
+  const W=600,H=120,P=6;
+  const min=Math.min(...pts.map(p=>p.total_cost)), max=Math.max(...pts.map(p=>p.total_cost));
+  const span=(max-min)||1;
+  const xs=i=>P+(i/(pts.length-1))*(W-2*P);
+  const ys=v=>H-P-((v-min)/span)*(H-2*P);
+  const line=pts.map((p,i)=>`${xs(i).toFixed(1)},${ys(p.total_cost).toFixed(1)}`).join(' ');
+  const first=pts[0], last=pts[pts.length-1];
+  const diff=last.total_cost-first.total_cost;
+  const kr0=v=>v.toLocaleString('da-DK',{maximumFractionDigits:0});
+  el.innerHTML=`<div class="card" style="padding:16px 20px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <div style="font-size:13px;font-weight:600;color:var(--ink-2)">📈 Lagerværdi over tid (kostpris)</div>
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700">${kr0(last.total_cost)} kr.</span>
+        <span style="font-size:11px;color:${diff>=0?'var(--amber)':'var(--green)'}">${diff>=0?'+':''}${kr0(diff)} kr. siden ${first.date}</span>
+        ${snapBtn}
+      </div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:110px;margin-top:8px" preserveAspectRatio="none">
+      <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      ${pts.map((p,i)=>`<circle cx="${xs(i).toFixed(1)}" cy="${ys(p.total_cost).toFixed(1)}" r="2.5" fill="var(--accent)"><title>${p.date}: ${kr0(p.total_cost)} kr.</title></circle>`).join('')}
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3)"><span>${first.date}</span><span>${last.date}</span></div>
+  </div>`;
+}
+
+async function takeLagervaerdiSnapshot(){
+  toast('Tager snapshot…');
+  const r=await jsonp({ action:'snapshotLagervaerdi' });
+  if(r?.error){ toast('Fejl: '+r.error); return; }
+  _lvHist=null; // gen-hent
+  renderOverviewLagervaerdiGraf();
+  toast('Lagerværdi-snapshot gemt ✓');
+}
+
 // Dynamisk genbestillingspunkt: dagligt forbrug (30 dage) × leveringstid × 1.2 buffer
 function calcDynamicPoint(item){
   if(!histLoaded||!histEntries.length) return null;
@@ -2354,7 +2424,46 @@ function renderOverviewReorder(){
       </div>`).join('')}
       ${hits.length>5?`<div style="font-size:11px;color:var(--ink-3);margin-top:2px">+ ${hits.length-5} flere…</div>`:''}
     </div>
+    ${(()=>{
+      // PO-knapper pr. leverandørgruppe
+      const bySupp={};
+      hits.forEach(h=>{ const sid=h.item.supplier; if(sid&&allLeverandoerer.some(l=>l.id===sid)){ if(!bySupp[sid]) bySupp[sid]=[]; bySupp[sid].push(h); } });
+      const groups=Object.entries(bySupp);
+      if(!groups.length) return '';
+      return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        ${groups.map(([sid,ghits])=>{
+          const lev=allLeverandoerer.find(l=>l.id===sid);
+          return `<button class="btn btn-sm" onclick="createDynPO('${sid}')" title="Opretter indkøbsordre der fylder op til bestillingspunktet">⚡ Opret PO: ${esc(lev?.name||sid)} (${ghits.length})</button>`;
+        }).join('')}
+      </div>`;
+    })()}
   </div>`;
+}
+
+// Opret PO fra "Bestil snart": bestil op til det dynamiske punkt (moq-afrundet)
+async function createDynPO(suppId){
+  const lev=allLeverandoerer.find(l=>l.id===suppId);
+  const draftItems=[];
+  items.forEach(i=>{
+    if(i.supplier!==suppId) return;
+    const dp=calcDynamicPoint(i); if(!dp) return;
+    const qty=parseInt(i.qty||0);
+    if(qty>=dp.point) return;
+    const need=Math.max(1, dp.point-qty);
+    const moq=parseInt(i.moq||0);
+    draftItems.push({ id:i.id, name:i.name, sku:i.sku||'', orderedQty: moq?Math.ceil(need/moq)*moq:need });
+  });
+  if(!draftItems.length){ toast('Ingen varer under bestillingspunktet for denne leverandør'); return; }
+  const expectedDate=lev?.leadDays?new Date(Date.now()+parseInt(lev.leadDays)*86400000).toISOString().slice(0,10):'';
+  sync('load','Opretter PO…');
+  try{
+    await jsonp({ action:'saveIndkoebsordre', id:uid(), supplier_id:suppId, supplier_name:lev?.name||'',
+      expected_date:expectedDate, notes:'Auto-oprettet fra Bestil snart (dynamisk punkt)', status:'afventer',
+      items_json:JSON.stringify(draftItems) });
+    poLoaded=false;
+    toast(`PO oprettet for ${lev?.name||suppId} · ${draftItems.length} vare${draftItems.length===1?'':'r'}`);
+    showTab('indkoebsordrer');
+  }catch(e){ sync('err','Fejl'); toast('Fejl: '+e.message); }
 }
 
 function renderOverviewDeadStock(){
@@ -3222,7 +3331,7 @@ function openItemModal(id, preRoom, tpl){
         </label>
         <div id="bundle-section" style="display:${bundleComps.length?'block':'none'};margin-top:12px"></div>
       </div>
-      ${id ? '<div id="item-prognose"></div>' : ''}
+      ${id ? '<div id="item-prognose"></div><div id="item-movements"></div>' : ''}
     </div>
     <div class="modal-foot">
       ${id?`<button class="btn btn-ghost btn-sm" onclick="duplicateItem('${id}')">⧉ Kopiér vare</button>`:''}
@@ -3231,7 +3340,7 @@ function openItemModal(id, preRoom, tpl){
     </div>`;
   openModal();
   if(bundleComps.length) renderBundleSection();
-  if(id) renderItemPrognose(id);
+  if(id){ renderItemPrognose(id); renderItemMovements(id); }
 }
 
 function adjQ(d){ const i=document.getElementById('f-qty'); if(!i) return; const v=Math.max(0,parseInt(i.value||0)+d); i.value=v; const qd=document.getElementById('q-d'); if(qd) qd.textContent=v; }
@@ -3306,6 +3415,27 @@ function suggestMinQty(itemId){
   const suggested=Math.ceil(dailyRate*leadDays*1.2);
   document.getElementById('f-minq').value=suggested;
   toast(`Forslag: ${suggested} stk.  (${Math.round(dailyRate*10)/10}/dag × ${leadDays}d + 20% buffer)`);
+}
+
+// Seneste 5 bevægelser for varen — direkte i vare-modalen
+function renderItemMovements(itemId){
+  const el=document.getElementById('item-movements'); if(!el) return;
+  if(!histLoaded||!histEntries.length) return;
+  const moves=histEntries.filter(e=>e.item_id===itemId).slice(0,5); // histEntries er nyeste-først
+  if(!moves.length) return;
+  el.innerHTML=`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-light)">
+    <div style="font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Seneste bevægelser</div>
+    ${moves.map(e=>{
+      const delta=parseInt(e.to_qty||0)-parseInt(e.from_qty||0);
+      let ts='—'; try{ ts=new Date(e.ts).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }catch(x){}
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px;padding:3px 0">
+        <span style="color:var(--ink-3);font-family:'IBM Plex Mono',monospace;white-space:nowrap">${esc(ts)}</span>
+        <span style="flex:1;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.note||'')}${e.device?' · 📱 '+esc(e.device):''}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${delta>0?'var(--green)':delta<0?'var(--red)':'var(--ink-3)'}">${delta>0?'+':''}${delta}</span>
+      </div>`;
+    }).join('')}
+    <a href="#" onclick="closeModal();showTab('historik');setTimeout(()=>{const s=document.getElementById('hist-search');if(s){s.value='${esc((items.find(i=>i.id===itemId)?.name||'').replace(/'/g,''))}';renderHistorik(histEntries);}},100);return false" style="font-size:11px;color:var(--blue)">Se al historik →</a>
+  </div>`;
 }
 
 function renderItemPrognose(itemId){
@@ -6073,6 +6203,11 @@ function renderLeverandoerer(){
     el.innerHTML='<div style="padding:20px;font-size:13px;color:var(--ink-3)">Ingen leverandører endnu — tilføj din første leverandør for at tilknytte dem til varer og genbestillingsordrer.</div>';
     return;
   }
+  // PO-data bruges til leverings-scorecard — hent i baggrunden hvis ikke indlæst
+  if(!poLoaded && !window._levPOLoading){
+    window._levPOLoading=true;
+    loadIndkoebsordrer().then(()=>renderLeverandoerer()).catch(()=>{}).finally(()=>{ window._levPOLoading=false; });
+  }
   el.innerHTML=allLeverandoerer.map(l=>{
     const itemCount=items.filter(i=>i.supplier===l.id).length;
     // Leverandør-performance fra lukkede PO'er
@@ -6088,6 +6223,14 @@ function renderLeverandoerer(){
         ?`<span style="font-size:10px;background:rgba(30,160,90,.1);color:var(--green);border-radius:4px;padding:2px 6px;font-weight:600">✓ Til tiden (${closedPOs.length})</span>`
         :`<span style="font-size:10px;background:rgba(200,100,0,.08);color:var(--amber);border-radius:4px;padding:2px 6px;font-weight:600">⚠ ${onTime}/${closedPOs.length} til tiden · gns. ${avgDelay}d forsinkelse</span>`)
       :'';
+    // Scorecard: faktisk gennemsnitlig leveringstid (oprettet → modtaget) vs. lovet leadDays
+    const receivedPOs=levPOs.filter(p=>p.received_date&&p.created);
+    const avgActual=receivedPOs.length?Math.round(receivedPOs.reduce((s,p)=>s+Math.max(0,(new Date(p.received_date)-new Date(p.created))/86400000),0)/receivedPOs.length):null;
+    const promised=parseInt(l.leadDays||0);
+    const slow=promised&&avgActual!==null&&avgActual>promised;
+    const leadBadge=avgActual!==null
+      ?`<span title="Beregnet fra ${receivedPOs.length} modtagne indkøbsordrer" style="font-size:10px;background:${slow?'rgba(200,60,50,.08)':'var(--surface-2)'};color:${slow?'var(--red)':'var(--ink-3)'};border-radius:4px;padding:2px 6px;font-weight:600">Ø faktisk: ${avgActual}d${promised?' · lovet '+promised+'d':''}</span>`
+      :'';
     return `<div class="list-row">
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${esc(l.name)}</div>
@@ -6097,6 +6240,7 @@ function renderLeverandoerer(){
           ${l.website?`<a href="${esc(l.website)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--blue)">${esc(l.website)}</a>`:''}
           ${l.leadDays?`<span style="font-size:11px;color:var(--ink-3)">${esc(l.leadDays)} dages leveringstid</span>`:''}
           ${perfBadge}
+          ${leadBadge}
         </div>
         ${l.notes?`<div style="font-size:11px;color:var(--ink-3);margin-top:3px">${esc(l.notes)}</div>`:''}
       </div>
@@ -8642,6 +8786,9 @@ async function loadSO(force=false){
 }
 function genSOId(){ const d=new Date(); return 'SO-'+d.getFullYear()+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')+'-'+(allSO.length+1+'').padStart(3,'0'); }
 
+const SO_STATUS_BADGE={ny:'badge-blue',pluk:'badge-amber',pakket:'badge-green',afsendt:'badge-gray'};
+const SO_STATUS_LABEL={ny:'Ny',pluk:'Under pluk',pakket:'Pakket',afsendt:'Afsendt'};
+
 async function renderSO(){
   await loadSO(true);
   const ny=allSO.filter(s=>s.status==='ny').length;
@@ -8654,11 +8801,25 @@ async function renderSO(){
     <div class="stat-card"><div class="stat-label">Under pluk</div><div class="stat-value">${pluk}</div></div>
     <div class="stat-card"><div class="stat-label">Pakket</div><div class="stat-value">${pakket}</div></div>
     <div class="stat-card"><div class="stat-label">Afsendt</div><div class="stat-value">${afsendt}</div></div>`;
+  renderSOTable();
+}
+
+function renderSOTable(){
   const tbody=document.getElementById('so-tbody'); if(!tbody) return;
-  if(!allSO.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu — opret din første med + knappen</td></tr>'; return; }
-  const statusBadge={ny:'badge-blue',pluk:'badge-amber',pakket:'badge-green',afsendt:'badge-gray'};
-  const statusLabel={ny:'Ny',pluk:'Under pluk',pakket:'Pakket',afsendt:'Afsendt'};
-  tbody.innerHTML=[...allSO].reverse().map(so=>{
+  // Statusfilter-chips
+  const chipsEl=document.getElementById('so-status-chips');
+  if(chipsEl){
+    const cur=window._soStatusFilter||'';
+    chipsEl.innerHTML=[['','Alle'],['ny','Ny'],['pluk','Pluk'],['pakket','Pakket'],['afsendt','Afsendt']].map(([val,lbl])=>
+      `<button class="btn btn-sm ${cur===val?'btn-primary':'btn-ghost'}" onclick="window._soStatusFilter='${val}';renderSOTable()">${lbl}</button>`).join('');
+  }
+  if(!allSO.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu — opret din første med + knappen</td></tr>'; return; }
+  const q=(window._soQ||'').trim().toLowerCase();
+  let list=[...allSO].reverse();
+  if(window._soStatusFilter) list=list.filter(s=>s.status===window._soStatusFilter);
+  if(q) list=list.filter(s=>(s.id+' '+(s.customer||'')+' '+(s.note||'')).toLowerCase().includes(q));
+  if(!list.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen ordrer matcher filteret</td></tr>'; return; }
+  tbody.innerHTML=list.map(so=>{
     const total=(so.lines||[]).reduce((s,l)=>s+(l.qty||0)*(l.salePrice||0),0);
     return `<tr>
     <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600">${esc(so.id)}</span></td>
@@ -8666,7 +8827,7 @@ async function renderSO(){
     <td style="font-size:12px;color:var(--ink-2)">${so.date||'—'}</td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${so.lines?.length||0} linjer</td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${total>0?total.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.':'—'}</td>
-    <td><span class="badge ${statusBadge[so.status]||'badge-gray'}">${statusLabel[so.status]||so.status}</span></td>
+    <td><span class="badge ${SO_STATUS_BADGE[so.status]||'badge-gray'}" style="cursor:pointer" title="Klik for at skifte status" onclick="openSOStatusMenu(event,'${so.id}')">${SO_STATUS_LABEL[so.status]||so.status}</span></td>
     <td style="text-align:right">
       ${so.shipment_id
         ?`<span class="badge badge-green" title="Forsendelse ${esc(so.shipment_id)} er oprettet">📦 ✓</span>`
@@ -8679,12 +8840,55 @@ async function renderSO(){
   </tr>`;}).join('');
 }
 
+// Lille statusmenu ved klik på badge i tabellen
+function openSOStatusMenu(ev, soId){
+  ev.stopPropagation();
+  closeSOStatusMenu();
+  const so=allSO.find(s=>s.id===soId); if(!so) return;
+  const menu=document.createElement('div');
+  menu.id='so-status-menu';
+  menu.style.cssText='position:fixed;z-index:9600;background:var(--white);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.18);padding:4px;min-width:140px';
+  menu.innerHTML=Object.entries(SO_STATUS_LABEL).map(([val,lbl])=>
+    `<div onclick="setSOStatus('${soId}','${val}')" style="padding:8px 12px;font-size:13px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;gap:10px${val===so.status?';background:var(--surface-2);font-weight:600':''}"
+      onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='${val===so.status?'var(--surface-2)':'transparent'}'">
+      ${lbl}${val===so.status?' ✓':''}${val==='afsendt'&&so.deducted!=='1'?'<span style="font-size:10px;color:var(--amber)">trækker lager</span>':''}
+    </div>`).join('');
+  document.body.appendChild(menu);
+  const r=menu.getBoundingClientRect();
+  const x=Math.min(ev.clientX, window.innerWidth-r.width-10);
+  const y=Math.min(ev.clientY+6, window.innerHeight-r.height-10);
+  menu.style.left=x+'px'; menu.style.top=y+'px';
+  setTimeout(()=>document.addEventListener('click', closeSOStatusMenu, { once:true }),0);
+}
+function closeSOStatusMenu(){ document.getElementById('so-status-menu')?.remove(); }
+
+async function setSOStatus(soId, status){
+  closeSOStatusMenu();
+  const so=allSO.find(s=>s.id===soId);
+  if(!so||so.status===status) return;
+  so.status=status;
+  let deducted=false;
+  if(status==='afsendt') deducted=await deductSOLines(so);
+  const r=await jsonp({ action:'saveSalgsordre', ...soToRow(so) });
+  if(r?.error){ toast('Fejl: '+r.error); return; }
+  renderSO().catch(()=>{});
+  toast(deducted?`${SO_STATUS_LABEL[status]} · lager fratrukket`:`Status: ${SO_STATUS_LABEL[status]}`);
+}
+
 async function openSOModal(id){
   await loadSO();
   const so=id?allSO.find(s=>s.id===id):null;
   document.getElementById('so-modal-title').textContent=so?'Rediger salgsordre':'Ny salgsordre';
   const aiPaste=document.getElementById('so-ai-paste'); if(aiPaste) aiPaste.value='';
   const aiStatus=document.getElementById('so-ai-status'); if(aiStatus) aiStatus.textContent='';
+  // Kundekartotek: unikke kundenavne fra tidligere ordrer (nyeste først)
+  const dl=document.getElementById('so-customer-list');
+  if(dl){
+    const seen=new Set();
+    dl.innerHTML=[...allSO].reverse()
+      .filter(s=>{ const k=(s.customer||'').trim().toLowerCase(); if(!k||seen.has(k)) return false; seen.add(k); return true; })
+      .map(s=>`<option value="${esc(s.customer.trim())}">`).join('');
+  }
   document.getElementById('so-id').value=so?.id||'';
   document.getElementById('so-customer').value=so?.customer||'';
   document.getElementById('so-date').value=so?.date||new Date().toISOString().slice(0,10);
@@ -8702,6 +8906,21 @@ async function openSOModal(id){
   const ov=document.getElementById('so-modal-overlay'); ov.style.display='flex';
 }
 function closeSOModal(){ document.getElementById('so-modal-overlay').style.display='none'; }
+
+// Kundekartotek: udfyld tomme adressefelter fra kundens seneste ordre
+function fillCustomerFromHistory(){
+  const name=(document.getElementById('so-customer').value||'').trim().toLowerCase();
+  if(!name) return;
+  const prev=[...allSO].reverse().find(s=>(s.customer||'').trim().toLowerCase()===name);
+  if(!prev) return;
+  const fillIfEmpty=(id,val)=>{ const el=document.getElementById(id); if(el&&!el.value.trim()&&val) el.value=val; };
+  fillIfEmpty('so-address', prev.address);
+  fillIfEmpty('so-zip',     prev.zip);
+  fillIfEmpty('so-city',    prev.city);
+  fillIfEmpty('so-email',   prev.email);
+  fillIfEmpty('so-phone',   prev.phone);
+  if(prev.address||prev.email||prev.phone) toast('Kundedata udfyldt fra '+prev.id);
+}
 
 async function aiParseSO(){
   const text=(document.getElementById('so-ai-paste').value||'').trim();
@@ -8971,8 +9190,16 @@ async function openSOPickList(soId){
     <div style="margin-top:20px;padding-top:12px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;font-size:13px;font-weight:600">
       <span>Total varer: ${lineDetails.reduce((s,l)=>s+l.qty,0)} stk fordelt på ${so.lines.length} linjer</span>
       <span>Plukket af: _______________</span>
-    </div>`;
+    </div>
+    ${(so.status==='ny'||so.status==='pluk')?`<div style="margin-top:16px;text-align:right" class="no-print">
+      <button class="btn btn-primary" onclick="finishSOPick('${so.id}')">✓ Færdigplukket — markér som pakket</button>
+    </div>`:''}`;
   document.getElementById('pick-modal-overlay').style.display='flex';
+}
+
+async function finishSOPick(soId){
+  closePickModal();
+  await setSOStatus(soId,'pakket');
 }
 function closePickModal(){ document.getElementById('pick-modal-overlay').style.display='none'; }
 
@@ -9175,6 +9402,18 @@ function buildCmdKIndex(){
     ['Indkøb','indkob'],['Historik','historik'],['Optælling','optaelling'],['Modtagelse','modtagelse'],
     ['Leverandører','leverandoerer'],['Indkøbsordrer','indkoebsordrer'],['Salgsordrer','salgsordrer'],['Rapporter','rapporter']];
   TABS.forEach(([label,tab])=>ix.push({ type:'Fane', icon:'→', label:'Gå til '+label, sub:'', key:('gå til '+label).toLowerCase(), run:()=>showTab(tab) }));
+  const ACTIONS=[
+    ['Ny salgsordre', ()=>{ showTab('salgsordrer'); openSOModal(null); }],
+    ['Ny vare', ()=>{ showTab('varer'); openItemModal(null,null); }],
+    ['Ny forsendelse', ()=>{ showTab('forsendelser'); openNewShipmentModal(); }],
+    ['Genbestil alt lavt (PO pr. leverandør)', ()=>autoCreatePOFromList()],
+    ['Hent sesu.dk priser (opdater)', ()=>{ loadSesuPrices(true); toast('Henter sesu.dk priser…'); }],
+    ['Generer månedrapport', ()=>generateMonthlyReport()],
+    ['Generer partner-rapport', ()=>generatePartnerReport()],
+    ['Eksporter varer som CSV', ()=>exportCSV()],
+    ['Importer varer', ()=>openImportModal()]
+  ];
+  ACTIONS.forEach(([label,run])=>ix.push({ type:'Handling', icon:'⚡', label, sub:'', key:label.toLowerCase(), run }));
   items.forEach(i=>ix.push({ type:'Vare', icon:'📦', label:i.name, sub:(i.sku?i.sku+' · ':'')+(i.qty||0)+' stk',
     key:(i.name+' '+(i.sku||'')).toLowerCase(), run:()=>{ showTab('varer'); openItemModal(i.id,null); } }));
   allSO.forEach(s=>ix.push({ type:'Salgsordre', icon:'🛍', label:s.id+' — '+(s.customer||'—'), sub:s.status||'',

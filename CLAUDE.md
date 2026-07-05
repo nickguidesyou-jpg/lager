@@ -156,7 +156,14 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - Følgeseddel-print pr. salgsordre ("🖨 Følgeseddel" — print-side uden priser, med afsender/modtager/linjer/note)
 - Avance-dashboard i Oversigt: denne + forrige måneds omsætning/kostpris/bruttoavance fra afsendte salgsordrer
 - Enhedsnavn i historik: felt i Historik-fanen (localStorage `lager_device_name`) — sendes automatisk med alle `logMovement`-kald (device-kolonne i Historik-arket)
-- Cmd+K/Ctrl+K kommandopalette: søg på tværs af varer, salgsordrer, indkøbsordrer, forsendelser og faner
+- Cmd+K/Ctrl+K kommandopalette: søg på tværs af varer, salgsordrer, indkøbsordrer, forsendelser og faner + handlinger (ny ordre/vare/forsendelse, genbestil alt, rapporter m.m.)
+- Kundekartotek: autocomplete på kundenavn i salgsordre-modalen; tomme adressefelter udfyldes fra kundens seneste ordre (`fillCustomerFromHistory`)
+- SO-tabel: søgefelt + statusfilter-chips; klik på status-badge åbner menu (`openSOStatusMenu`/`setSOStatus` — "afsendt" kører guarded lagertræk)
+- Plukliste: "✓ Færdigplukket"-knap sætter ordren til pakket
+- "Bestil snart"-kortet har "⚡ Opret PO"-knapper pr. leverandør (`createDynPO` — fylder op til dynamisk punkt, moq-afrundet)
+- Vare-modal viser seneste 5 bevægelser (`renderItemMovements`) udover lagerprognosen
+- Leverandør-scorecard: "Ø faktisk: Xd · lovet Yd" beregnet fra modtagne PO'er (oprettet → modtaget)
+- Lagerværdi over tid: Lagervaerdi-ark med snapshots (automatisk ved ugentlig backup + manuel 📸-knap); SVG-graf i Oversigt (`getLagervaerdi`/`snapshotLagervaerdi`)
 - Returflow: markeres en forsendelse "Returneret" tilbydes at lægge pakkeindholdet tilbage på lager (guard: localStorage-flag + historik-note "Retur fra forsendelse X")
 - Dynamisk genbestillingspunkt: "⏳ Bestil snart"-kort i Oversigt (forbrug/dag × leveringstid × 1.2) + ✦ Auto-knap ved min-beholdning i vare-modalen
 - Historik hentes automatisk i baggrunden efter login (ABC/dødt lager/advarsler virker uden at besøge Historik-fanen)
@@ -174,3 +181,4 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - sesu.dk-scraping kan fejle hvis siden ændrer struktur
 - Ingen multi-user support — ét delt token
 - Backup-trigger skal aktiveres manuelt én gang (se ovenfor) før den kører automatisk
+- Automatisk "leveret"-status fra Shipmondo er IKKE mulig via API'et: GET /shipments eksponerer ingen tracking-/leveringsstatus (verificeret i deres OpenAPI-spec juli 2026; `delivery_details` er kun ønsket leveringsdato). Ville kræve webhooks konfigureret i Shipmondo-admin
