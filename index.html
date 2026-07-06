@@ -1501,6 +1501,7 @@ body.compact .low-row { padding: 8px 16px; }
           onkeydown="if(event.key==='Enter'&&this.value.trim()){sendAIFromSearch(this.value);this.value=''}else if(event.key==='Escape'){closeAI();this.blur()}">
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openCmdK()" title="Søg alt (Cmd+K / Ctrl+K)">⌕</button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste som CSV">↓ CSV</button>
@@ -1946,7 +1947,7 @@ body.compact .low-row { padding: 8px 16px; }
                 <th style="width:15%"></th>
               </tr></thead>
               <tbody id="so-tbody">
-                <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu</td></tr>
+                <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen salgsordrer endnu</td></tr>
               </tbody>
             </table>
           </div>
@@ -3909,6 +3910,7 @@ function setShipStatus(shipId, status){
 async function maybeRestockShipment(sid){
   const contents=(shipPackageContents[sid]||{}).items||[];
   if(!contents.length) return;
+  if(!items.length){ toast('Varer ikke indlæst endnu — skift status igen om et øjeblik for at lægge varer tilbage'); return; } // ellers sættes flaget uden restock
   // Guard 1: lokalt flag · Guard 2: historikken (persistent på tværs af enheder)
   if(localStorage.getItem('ship_restocked_'+sid)) return;
   if(histLoaded && histEntries.some(e=>(e.note||'')==='Retur fra forsendelse '+sid)){
@@ -8732,6 +8734,7 @@ function soToRow(so){
 // Træk salgsordrens linjer fra lageret (kun én gang pr. ordre — markeres med deducted-flag)
 async function deductSOLines(so){
   if(so.deducted==='1' || !so.lines?.length) return false;
+  if(!items.length){ toast('Varer ikke indlæst endnu — prøv igen om et øjeblik'); return false; } // uden varelisten ville flaget blive sat uden træk
   so.deducted='1'; // sæt FØR trækket — hellere ét manglende træk (med fejlbesked) end dobbelt-træk ved retry
   let changed=0, failed=0;
   for(const l of so.lines){
