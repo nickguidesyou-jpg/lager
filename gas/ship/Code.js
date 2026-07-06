@@ -138,6 +138,7 @@ function doPost(e) {
     else if (action === 'getMonthlyHistory')     result = getMonthlyHistory();
     else if (action === 'createShipment')        result = createShipment(p);
     else if (action === 'sendReorderEmail')      result = sendReorderEmail(p);
+    else if (action === 'getTrustInfo')          result = getTrustInfo();
     else if (action === 'claudeProxy')           result = claudeProxy(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
@@ -319,6 +320,13 @@ function loadDeviceTrustList(props) {
 function saveDeviceTrustList(props, list) {
   list.sort(function(a, b){ return b.expires - a.expires; });
   props.setProperty('DEVICE_TRUST_LIST', JSON.stringify(list.slice(0, DEVICE_TRUST_MAX)));
+}
+
+function getTrustInfo() {
+  var props = getProps();
+  var list = loadDeviceTrustList(props);
+  saveDeviceTrustList(props, list); // ryd udløbne op
+  return { devices: list.length, max: DEVICE_TRUST_MAX, totp: !!props.getProperty('TOTP_SECRET') };
 }
 
 function verifyDeviceTrust(p) {

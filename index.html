@@ -1501,6 +1501,7 @@ body.compact .low-row { padding: 8px 16px; }
           onkeydown="if(event.key==='Enter'&&this.value.trim()){sendAIFromSearch(this.value);this.value=''}else if(event.key==='Escape'){closeAI();this.blur()}">
       </div>
       <div class="topbar-actions">
+        <span id="offline-badge" class="badge badge-amber" style="display:none;cursor:pointer;align-self:center" onclick="flushOfflineQueue()" title="Ændringer venter på synkronisering — klik for at prøve nu"></span>
         <button class="btn btn-ghost btn-sm" onclick="openCmdK()" title="Søg alt (Cmd+K / Ctrl+K)">⌕</button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
@@ -1726,6 +1727,7 @@ body.compact .low-row { padding: 8px 16px; }
       <!-- RAPPORTER -->
       <div id="tab-rapporter" class="view" style="display:none">
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:20px">
+          <button class="btn btn-ghost btn-sm" onclick="openSeasonReport()" title="Månedlig afgang de seneste 12 måneder">📈 Sæsonoverblik</button>
           <button class="btn btn-accent btn-sm" onclick="generatePartnerReport()" title="Generer rapport til partner med lagerstatus vs. sesu.dk">📋 Partner rapport</button>
           <button class="btn btn-ghost btn-sm" onclick="loadSesuPrices(true).then(()=>toast('sesu.dk priser genindlæst ✓'))" title="Tving genindlæsning af sesu.dk priser (omgår cache)">↺ Genindlæs sesu.dk</button>
           <button class="btn btn-ghost btn-sm" onclick="renderRapporter(true)">⟳ Opdater</button>
@@ -1744,6 +1746,7 @@ body.compact .low-row { padding: 8px 16px; }
               <button id="po-view-list" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setPOView('liste')">☰ Liste</button>
               <button id="po-view-kal" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setPOView('kalender')">📅 Kalender</button>
             </div>
+            <button class="btn btn-ghost btn-sm" onclick="openScanReceive()" title="Scan varens stregkode — den matches til en åben indkøbsordre og modtages">📷 Scan modtagelse</button>
             <button class="btn btn-ghost btn-sm" onclick="poLoaded=false;loadIndkoebsordrer()">⟳ Opdater</button>
             <button class="btn btn-primary btn-sm" onclick="openPOModal(null)">+ Ny indkøbsordre</button>
           </div>
@@ -1933,6 +1936,7 @@ body.compact .low-row { padding: 8px 16px; }
             <input type="text" id="so-search" placeholder="Søg ordre eller kunde…" oninput="window._soQ=this.value;renderSOTable()">
           </div>
           <div id="so-status-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          <button class="btn btn-ghost btn-sm" onclick="openBatchPickList()" title="Én samlet plukliste for alle ordrer under pluk" style="margin-left:auto">📋 Saml plukliste</button>
         </div>
         <div class="card">
           <div class="table-wrap">
@@ -2071,6 +2075,7 @@ body.compact .low-row { padding: 8px 16px; }
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 22px;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost" id="so-faktura-btn" style="display:none;margin-right:auto" onclick="printFaktura(document.getElementById('so-id').value)">🧾 Faktura</button>
       <button class="btn btn-ghost" onclick="closeSOModal()">Annuller</button>
       <button class="btn btn-primary" onclick="saveSOModal()">Gem ordre</button>
     </div>
@@ -2193,10 +2198,56 @@ async function jsonp(params, timeoutMs=12000){
     if(d && d.error === 'TOKEN_EXPIRED') { forceRelogin(); return d; }
     return d;
   } catch(e) {
+    // Offline-kø: skrive-handlinger gemmes lokalt og synkes når forbindelsen er tilbage
+    if(!_offlineFlushing && OFFLINE_QUEUEABLE.has(params.action)){
+      const q=getOfflineQueue();
+      q.push({ params, ts:Date.now() });
+      setOfflineQueue(q);
+      toast('Ingen forbindelse — ændringen er gemt og synkes automatisk');
+      return { ok:true, offline:true };
+    }
     if(e.name==='AbortError') throw new Error('Timeout — tjek Apps Script URL og deployment');
     throw new Error('Kunne ikke nå server — tjek deployment er sat til "Alle": '+e.message);
   } finally { clearTimeout(timer); }
 }
+
+// ── OFFLINE-KØ ──
+const OFFLINE_QUEUEABLE=new Set(['saveItem','deleteItem','logMovement','saveSalgsordre','deleteSalgsordre',
+  'savePackageContents','saveShipmentStatus','saveIndkoebsordre','deleteIndkoebsordre','saveRoom','deleteRoom',
+  'saveTemplate','deleteTemplate','saveLeverandoer','deleteLeverandoer']);
+const OFFLINE_KEY='lager_offline_queue';
+let _offlineFlushing=false;
+
+function getOfflineQueue(){ try{ return JSON.parse(localStorage.getItem(OFFLINE_KEY)||'[]'); }catch(e){ return []; } }
+function setOfflineQueue(q){ try{ localStorage.setItem(OFFLINE_KEY,JSON.stringify(q)); }catch(e){} updateOfflineBadge(); }
+function updateOfflineBadge(){
+  const el=document.getElementById('offline-badge'); if(!el) return;
+  const n=getOfflineQueue().length;
+  el.style.display=n?'':'none';
+  el.textContent='⏳ '+n;
+}
+
+async function flushOfflineQueue(){
+  if(_offlineFlushing || !navigator.onLine) return;
+  if(!getOfflineQueue().length) return;
+  _offlineFlushing=true;
+  let synced=0;
+  try{
+    while(true){
+      const cur=getOfflineQueue();
+      if(!cur.length) break;
+      try{
+        await jsonp(cur[0].params, 15000); // netværksfejl kaster (køes ikke igen pga. _offlineFlushing) → stop og prøv senere
+        setOfflineQueue(cur.slice(1));     // fjernes først EFTER succes; serverfejl-svar droppes efter ét forsøg
+        synced++;
+      }catch(e){ break; }
+    }
+    if(synced && !getOfflineQueue().length) toast(`${synced} offline-ændring${synced===1?'':'er'} synkroniseret ✓`);
+  } finally { _offlineFlushing=false; }
+}
+
+window.addEventListener('online', ()=>setTimeout(flushOfflineQueue, 1500));
+setInterval(()=>{ if(sessionStorage.getItem('lager_token')) flushOfflineQueue(); }, 60000);
 
 function forceRelogin() {
   sessionStorage.removeItem('lager_auth');
@@ -2729,6 +2780,13 @@ function jsonpShipSlow(params){ return jsonpShip(params, 35000); }
 function catBadge(cat){ return `<span class="badge ${getBadgeClass(cat)}">${esc(cat)}</span>`; }
 function esc(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
 
+// Stikords-søgning: alle søgeord skal findes, men i vilkårlig rækkefølge ("sort 71 hairpin" matcher "Hairpin Ben 71cm Sort")
+function wordMatch(haystack, query){
+  if(!query) return true;
+  const h=String(haystack).toLowerCase();
+  return String(query).toLowerCase().split(/\s+/).filter(Boolean).every(w=>h.includes(w));
+}
+
 function renderOversigtsAdvarsler(){
   const el=document.getElementById('ov-alerts'); if(!el) return;
   const parts=[];
@@ -3070,7 +3128,7 @@ function renderItems(){
 
   const fil = items.filter(i=>{
     const r = rooms.find(r=>r.id===i.room);
-    const ms = !q || [i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
+    const ms = wordMatch([i.name,i.cat,i.shelf,i.sku||'',r?.name||'',i.location||''].join(' '), q);
     return ms && (activeCat==='Alle'||i.cat===activeCat);
   }).sort((a,b)=>{
     const d = itemSort.dir;
@@ -5630,10 +5688,10 @@ function execCmdk(action){
 function searchCmdk(q){
   _cmdkIdx=-1;
   if(!q.trim()){ renderCmdkDefault(); return; }
-  const ql=q.toLowerCase();
-  const itemHits=items.filter(i=>i.name.toLowerCase().includes(ql)||(i.sku&&i.sku.toLowerCase().includes(ql))).slice(0,7);
-  const levHits=allLeverandoerer.filter(l=>l.name.toLowerCase().includes(ql)).slice(0,3);
-  const roomHits=rooms.filter(r=>r.name.toLowerCase().includes(ql)).slice(0,3);
+  const ql=q;
+  const itemHits=items.filter(i=>wordMatch(i.name+' '+(i.sku||''), ql)).slice(0,7);
+  const levHits=allLeverandoerer.filter(l=>wordMatch(l.name, ql)).slice(0,3);
+  const roomHits=rooms.filter(r=>wordMatch(r.name, ql)).slice(0,3);
   let html='', idx=0;
   if(itemHits.length){
     html+=`<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Varer</div>`;
@@ -6064,7 +6122,7 @@ function updateRecvSummary(){
 function renderRecvSearch(q){
   const drop=document.getElementById('recv-drop'); if(!drop) return;
   if(!q){ drop.innerHTML=''; return; }
-  const matches=items.filter(i=>i.name.toLowerCase().includes(q.toLowerCase())||i.sku.toLowerCase().includes(q.toLowerCase())).slice(0,6);
+  const matches=items.filter(i=>wordMatch(i.name+' '+(i.sku||''), q)).slice(0,6);
   if(!matches.length){ drop.innerHTML=''; return; }
   drop.innerHTML=`<div style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);background:var(--white);max-height:200px;overflow-y:auto">${
     matches.map(i=>`<div onclick="addToRecv('${i.id}');document.getElementById('recv-search').value='';document.getElementById('recv-drop').innerHTML=''" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light)">${esc(i.name)}${i.sku?` <span style="font-size:10px;color:var(--ink-3)">${esc(i.sku)}</span>`:''}</div>`).join('')
@@ -6681,7 +6739,7 @@ function renderOptaelling(){
   const q = (document.getElementById('ot-search')?.value||'').toLowerCase();
   let fil = items.filter(i=>{
     if(roomFilter && i.room!==roomFilter) return false;
-    if(q && !i.name.toLowerCase().includes(q) && !i.sku.toLowerCase().includes(q)) return false;
+    if(!wordMatch(i.name+' '+(i.sku||''), q)) return false;
     return true;
   });
 
@@ -7301,7 +7359,7 @@ function exportHistorikCSV(){
     const from=document.getElementById('hist-from')?.value;
     const to=document.getElementById('hist-to')?.value;
     const q=(document.getElementById('hist-search')?.value||'').toLowerCase();
-    if(q && !(e.item_name||'').toLowerCase().includes(q)) return false;
+    if(!wordMatch((e.item_name||'')+' '+(e.note||''), q)) return false;
     if(from && e.ts<from) return false;
     if(to && e.ts>(to+'T23:59:59')) return false;
     return true;
@@ -7321,7 +7379,7 @@ function exportHistorikCSV(){
 function openBatchQR(){
   const fil=items.filter(i=>{
     const q=(document.getElementById('search')?.value||'').toLowerCase();
-    return !q||i.name.toLowerCase().includes(q)||i.sku.toLowerCase().includes(q);
+    return wordMatch(i.name+' '+(i.sku||''), q);
   });
   if(!fil.length){ toast('Ingen varer at vise'); return; }
 
@@ -7597,7 +7655,7 @@ function openPOModal(id){
   window.renderPOSearchDrop=(q,draft)=>{
     const drop=document.getElementById('po-item-drop'); if(!drop) return;
     if(!q.trim()){ drop.innerHTML=''; return; }
-    const hits=items.filter(i=>i.name.toLowerCase().includes(q.toLowerCase())||i.sku.toLowerCase().includes(q.toLowerCase())).slice(0,6);
+    const hits=items.filter(i=>wordMatch(i.name+' '+(i.sku||''), q)).slice(0,6);
     if(!hits.length){ drop.innerHTML=''; return; }
     drop.innerHTML=`<div style="position:absolute;right:0;top:4px;min-width:240px;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);box-shadow:var(--shadow-md);z-index:50;max-height:200px;overflow-y:auto">${
       hits.map(i=>`<div onclick="
@@ -7709,6 +7767,175 @@ async function confirmReceivePO(id, poItems){
   } catch(e){
     sync('err','Fejl'); toast('Fejl: '+e.message);
   }
+}
+
+// ── SYSTEMSTATUS ──
+async function openSystemStatus(){
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">🩺 Systemstatus</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="sysstatus-body">
+      <div style="text-align:center;padding:2rem;color:var(--ink-3);font-size:13px">Tjekker systemet…</div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+
+  const row=(label,val,ok)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 0;border-bottom:1px solid var(--border-light);font-size:13px">
+    <span style="color:var(--ink-2)">${label}</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:${ok===false?'var(--red)':ok===true?'var(--green)':'var(--ink-1,var(--ink))'}">${val}</span>
+  </div>`;
+
+  // Mål begge backends parallelt
+  const t1=Date.now();
+  const lagerP=jsonp({ action:'getSystemStatus' }, 20000).then(d=>({ d, ms:Date.now()-t1 })).catch(e=>({ err:e.message }));
+  const t2=Date.now();
+  const shipP=jsonpShip({ action:'getTrustInfo' }, 20000).then(d=>({ d, ms:Date.now()-t2 })).catch(e=>({ err:e.message }));
+  const [lager, ship]=await Promise.all([lagerP, shipP]);
+
+  const queue=getOfflineQueue().length;
+  const parts=[];
+  parts.push(row('Lager-API (Google Sheets)', lager.err?'FEJL: '+esc(lager.err):lager.ms+' ms', lager.err?false:lager.ms<3000));
+  parts.push(row('Ship-API (Shipmondo m.m.)', ship.err?'FEJL: '+esc(ship.err):ship.ms+' ms', ship.err?false:ship.ms<3000));
+  if(!lager.err&&lager.d){
+    parts.push(row('Varer i systemet', lager.d.item_count??'—'));
+    parts.push(row('Seneste backup', lager.d.backup_error?esc(lager.d.backup_error):(lager.d.backup_last?esc(lager.d.backup_last):'Ingen endnu — kør setupBackupTrigger()'), lager.d.backup_error?false:(lager.d.backup_last?true:undefined)));
+    parts.push(row('Seneste lagerværdi-snapshot', lager.d.lagervaerdi_last?esc(lager.d.lagervaerdi_last):'Ingen endnu', lager.d.lagervaerdi_last?true:undefined));
+  }
+  if(!ship.err&&ship.d&&!ship.d.error){
+    parts.push(row('Betroede enheder (2FA-spring)', (ship.d.devices??0)+' af '+(ship.d.max??5)));
+    parts.push(row('TOTP 2FA', ship.d.totp?'Aktiveret':'Ikke aktiveret', ship.d.totp?true:undefined));
+  }
+  parts.push(row('sesu.dk priser', sesuPricesLoaded?Object.keys(sesuPrices).length+' indlæst':'Ikke hentet endnu', sesuPricesLoaded?true:undefined));
+  parts.push(row('Historik', histLoaded?histEntries.length+' poster indlæst':'Ikke hentet endnu', histLoaded?true:undefined));
+  parts.push(row('Ventende offline-ændringer', queue?queue+' i kø':'Ingen', queue?false:true));
+  parts.push(row('Forbindelse', navigator.onLine?'Online':'Offline', navigator.onLine));
+
+  const body=document.getElementById('sysstatus-body');
+  if(body) body.innerHTML=parts.join('');
+}
+
+// ── SÆSONOVERBLIK ──
+async function openSeasonReport(){
+  toast('Henter fuld historik…');
+  let entries=[];
+  try{
+    const d=await jsonp({ action:'getHistory', limit:10000 });
+    if(d.error) throw new Error(d.error);
+    entries=d.entries||[];
+  }catch(e){ toast('Fejl: '+e.message); return; }
+  // Månedlig udgående mængde, seneste 12 måneder
+  const now=new Date();
+  const months=[];
+  for(let m=11;m>=0;m--){
+    const d=new Date(now.getFullYear(), now.getMonth()-m, 1);
+    months.push({ key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),
+                  label:d.toLocaleDateString('da-DK',{month:'short'}), out:0 });
+  }
+  const byItem={};
+  entries.forEach(e=>{
+    const delta=parseInt(e.to_qty||0)-parseInt(e.from_qty||0);
+    if(delta>=0) return;
+    const key=String(e.ts).slice(0,7);
+    const mo=months.find(m=>m.key===key);
+    if(mo) mo.out+=-delta;
+    if(mo) byItem[e.item_name||'?']=(byItem[e.item_name||'?']||0)+-delta;
+  });
+  const maxOut=Math.max(...months.map(m=>m.out),1);
+  const top=Object.entries(byItem).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const total=months.reduce((s,m)=>s+m.out,0);
+  const W=560,H=140,BW=Math.floor(W/12)-8;
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📈 Sæsonoverblik — udgående enheder pr. måned</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">${total.toLocaleString('da-DK')} enheder afgang de seneste 12 måneder · baseret på ${entries.length.toLocaleString('da-DK')} historik-poster</div>
+      <svg viewBox="0 0 ${W} ${H+22}" style="width:100%">
+        ${months.map((m,i)=>{
+          const h=Math.round(m.out/maxOut*H);
+          const x=i*(W/12)+4;
+          return `<g>
+            <rect x="${x}" y="${H-h}" width="${BW}" height="${h}" rx="3" fill="var(--accent)" opacity="${m.out?1:.15}"><title>${m.key}: ${m.out} stk</title></rect>
+            ${m.out?`<text x="${x+BW/2}" y="${H-h-4}" font-size="9" text-anchor="middle" fill="var(--ink-3)">${m.out}</text>`:''}
+            <text x="${x+BW/2}" y="${H+14}" font-size="9" text-anchor="middle" fill="var(--ink-3)">${esc(m.label)}</text>
+          </g>`;
+        }).join('')}
+      </svg>
+      ${top.length?`<div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Top 5 — mest afgang (12 mdr.)</div>
+        ${top.map(([name,qty])=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border-light)">
+          <span>${esc(name)}</span><span style="font-family:'IBM Plex Mono',monospace;font-weight:600">${qty} stk</span>
+        </div>`).join('')}
+      </div>`:''}
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">Luk</button></div>`;
+  openModal();
+}
+
+// ── SCAN-MODTAGELSE ──
+// Scan en stregkode → find den åbne PO-linje → modtag (lager + historik + PO-status som confirmReceivePO)
+async function openScanReceive(){
+  if(!poLoaded){ toast('Henter indkøbsordrer…'); try{ await loadIndkoebsordrer(); }catch(e){ toast('Kunne ikke hente ordrer'); return; } }
+  openBarcodeScanner(code=>handleScanReceive(String(code||'').trim()));
+}
+
+function handleScanReceive(code){
+  if(!code) return;
+  const item=items.find(i=>(i.sku||'').trim()===code) || items.find(i=>wordMatch(i.name+' '+(i.sku||''), code));
+  if(!item){ toast('Ingen vare matcher stregkoden: '+code); return; }
+  // Find åben PO med resterende antal for varen (ældste først)
+  const po=[...allPO].reverse().find(p=>
+    (p.status==='åben'||p.status==='afventer'||p.status==='delvist') &&
+    (p.items||[]).some(e=>e.id===item.id && (parseInt(e.receivedQty||0))<(parseInt(e.orderedQty||0))));
+  if(!po){ toast(`${item.name}: ingen åben indkøbsordre med resterende antal`); return; }
+  const line=po.items.find(e=>e.id===item.id);
+  const remaining=(parseInt(line.orderedQty||0))-(parseInt(line.receivedQty||0));
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">📥 Modtag — ${esc(item.name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:12px">
+        PO <strong>${esc((po.id||'').slice(-6).toUpperCase())}</strong> — ${esc(po.supplier_name||'—')}<br>
+        Bestilt: ${line.orderedQty} · Modtaget: ${line.receivedQty||0} · <strong>Rest: ${remaining}</strong>
+      </div>
+      <div class="fg"><label>Antal modtaget nu</label><input id="scan-rcv-qty" type="number" min="1" max="${remaining}" value="${remaining}" style="font-size:16px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal();openScanReceive()">Scan næste i stedet</button>
+      <button class="btn btn-primary" onclick="confirmScanReceive('${esc(po.id)}','${esc(item.id)}')">✓ Modtag</button>
+    </div>`;
+  openModal();
+  setTimeout(()=>{ const el=document.getElementById('scan-rcv-qty'); el?.focus(); el?.select(); },80);
+}
+
+async function confirmScanReceive(poId, itemId){
+  const qty=Math.max(1,parseInt(document.getElementById('scan-rcv-qty')?.value||0));
+  closeModal();
+  const po=allPO.find(p=>p.id===poId);
+  const it=items.find(i=>i.id===itemId);
+  if(!po||!it){ toast('Ordren eller varen findes ikke længere'); return; }
+  sync('load','Opdaterer lager…');
+  try{
+    const orig=parseInt(it.qty||0), newQty=orig+qty;
+    await jsonp({ ...it, action:'saveItem', qty:newQty });
+    jsonp({ action:'logMovement', item_id:it.id, item_name:it.name, from_qty:orig, to_qty:newQty, note:'Indkøbsordre '+poId.slice(-6).toUpperCase()+' (scan)' }).catch(()=>{});
+    it.qty=String(newQty);
+    const updatedItems=po.items.map(e=>e.id===itemId?{...e,receivedQty:(parseInt(e.receivedQty||0))+qty}:e);
+    const allReceived=updatedItems.every(e=>(parseInt(e.receivedQty||0))>=(parseInt(e.orderedQty||0)));
+    const newStatus=allReceived?'lukket':'delvist';
+    const receivedDate=allReceived?new Date().toISOString().slice(0,10):(po.received_date||'');
+    await jsonp({ action:'saveIndkoebsordre', ...po, status:newStatus, items_json:JSON.stringify(updatedItems), received_date:receivedDate });
+    po.items=updatedItems; po.status=newStatus; po.received_date=receivedDate;
+    histLoaded=false;
+    renderItems();
+    toast(`${qty} × ${it.name} modtaget${allReceived?' · PO lukket ✓':''}`);
+    openScanReceive(); // klar til næste kasse
+  }catch(e){ sync('err','Fejl'); toast('Fejl: '+e.message); }
 }
 
 // ── INDKØBSLISTE ──
@@ -7883,7 +8110,7 @@ function renderHistorik(entries){
   const fromVal=document.getElementById('hist-from')?.value;
   const toVal=document.getElementById('hist-to')?.value;
   let fil=entries;
-  if(q) fil=fil.filter(e=>(e.item_name||'').toLowerCase().includes(q));
+  if(q) fil=fil.filter(e=>wordMatch((e.item_name||'')+' '+(e.note||'')+' '+(e.device||''), q));
   if(fromVal) fil=fil.filter(e=>e.ts>=fromVal);
   if(toVal) fil=fil.filter(e=>e.ts<=(toVal+'T23:59:59'));
   const tbody=document.getElementById('hist-tbody');
@@ -8081,7 +8308,7 @@ function openPackageModal(shipId){
   window.pkgRender = function(searchVal){
     const rows = window.pkgModalRows;
     const matchedItems = searchVal
-      ? items.filter(i=>i.name.toLowerCase().includes(searchVal.toLowerCase())||i.sku.toLowerCase().includes(searchVal.toLowerCase()))
+      ? items.filter(i=>wordMatch(i.name+' '+(i.sku||''), searchVal))
       : [];
 
     const rowsHtml = rows.map((e,idx)=>{
@@ -8246,7 +8473,7 @@ function getFilteredItems(){
   const q=(document.getElementById('search')?.value||'').toLowerCase();
   return items.filter(i=>{
     const r=rooms.find(r=>r.id===i.room);
-    const ms=!q||[i.name,i.cat,i.shelf,i.sku||'',r?.name||''].some(s=>s.toLowerCase().includes(q));
+    const ms=wordMatch([i.name,i.cat,i.shelf,i.sku||'',r?.name||'',i.location||''].join(' '), q);
     return ms&&(activeCat==='Alle'||i.cat===activeCat);
   });
 }
@@ -8348,7 +8575,9 @@ if (_hasToken) {
   loadBalance();
   loadMonthlyStats();
   loadMonthlyHistory();
+  setTimeout(flushOfflineQueue, 3000); // synk evt. ventende offline-ændringer efter opstart
 }
+updateOfflineBadge();
 setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadBalance(); }, 60000);
 setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadMonthlyStats(); }, 300000);
 setInterval(()=>{ if(sessionStorage.getItem('lager_token')) loadMonthlyHistory(); }, 600000);
@@ -8820,13 +9049,13 @@ function renderSOTable(){
   const q=(window._soQ||'').trim().toLowerCase();
   let list=[...allSO].reverse();
   if(window._soStatusFilter) list=list.filter(s=>s.status===window._soStatusFilter);
-  if(q) list=list.filter(s=>(s.id+' '+(s.customer||'')+' '+(s.note||'')).toLowerCase().includes(q));
+  if(q) list=list.filter(s=>wordMatch(s.id+' '+(s.customer||'')+' '+(s.note||''), q));
   if(!list.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--ink-3)">Ingen ordrer matcher filteret</td></tr>'; return; }
   tbody.innerHTML=list.map(so=>{
     const total=(so.lines||[]).reduce((s,l)=>s+(l.qty||0)*(l.salePrice||0),0);
     return `<tr>
     <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600">${esc(so.id)}</span></td>
-    <td><div class="td-name">${esc(so.customer||'—')}</div>${so.note?`<div class="td-sub">${esc(so.note.slice(0,50))}</div>`:''}</td>
+    <td><div class="td-name" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" title="Vis kundens ordrehistorik" onclick="openCustomerModal('${esc((so.customer||'').replace(/'/g,''))}')">${esc(so.customer||'—')}</div>${so.note?`<div class="td-sub">${esc(so.note.slice(0,50))}</div>`:''}</td>
     <td style="font-size:12px;color:var(--ink-2)">${so.date||'—'}</td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${so.lines?.length||0} linjer</td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${total>0?total.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.':'—'}</td>
@@ -8893,6 +9122,7 @@ async function openSOModal(id){
       .map(s=>`<option value="${esc(s.customer.trim())}">`).join('');
   }
   document.getElementById('so-id').value=so?.id||'';
+  const fakturaBtn=document.getElementById('so-faktura-btn'); if(fakturaBtn) fakturaBtn.style.display=so?'':'none';
   document.getElementById('so-customer').value=so?.customer||'';
   document.getElementById('so-date').value=so?.date||new Date().toISOString().slice(0,10);
   document.getElementById('so-status').value=so?.status||'ny';
@@ -8909,6 +9139,56 @@ async function openSOModal(id){
   const ov=document.getElementById('so-modal-overlay'); ov.style.display='flex';
 }
 function closeSOModal(){ document.getElementById('so-modal-overlay').style.display='none'; }
+
+// Kunde-side: alle kundens ordrer, totalomsætning og stamdata
+function openCustomerModal(name){
+  const key=(name||'').trim().toLowerCase();
+  const orders=[...allSO].reverse().filter(s=>(s.customer||'').trim().toLowerCase()===key);
+  if(!orders.length){ toast('Ingen ordrer for denne kunde'); return; }
+  const latest=orders.find(o=>o.address||o.email||o.phone)||orders[0]; // nyeste ordre MED stamdata
+  const orderTotal=o=>(o.lines||[]).reduce((s,l)=>s+(l.qty||0)*(l.salePrice||0),0);
+  const totalRev=orders.reduce((s,o)=>s+orderTotal(o),0);
+  const sentRev=orders.filter(o=>o.status==='afsendt').reduce((s,o)=>s+orderTotal(o),0);
+  const kr=v=>v.toLocaleString('da-DK',{maximumFractionDigits:0})+' kr.';
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">👤 ${esc(latest.customer)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:110px;background:var(--surface-2);border-radius:var(--radius);padding:10px 14px;border:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.06em">ORDRER</div>
+          <div style="font-size:20px;font-weight:700;font-family:'IBM Plex Mono',monospace">${orders.length}</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:var(--surface-2);border-radius:var(--radius);padding:10px 14px;border:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.06em">TOTAL</div>
+          <div style="font-size:20px;font-weight:700;font-family:'IBM Plex Mono',monospace">${kr(totalRev)}</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:var(--surface-2);border-radius:var(--radius);padding:10px 14px;border:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.06em">AFSENDT</div>
+          <div style="font-size:20px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:var(--green)">${kr(sentRev)}</div>
+        </div>
+      </div>
+      ${latest.address||latest.email||latest.phone?`<div style="font-size:12px;color:var(--ink-2);margin-bottom:14px;line-height:1.7">
+        ${latest.address?esc(latest.address)+', '+esc((latest.zip||'')+' '+(latest.city||''))+'<br>':''}
+        ${latest.email?'<span style="color:var(--blue)">'+esc(latest.email)+'</span> ':''}${latest.phone?'· '+esc(latest.phone):''}
+      </div>`:''}
+      <div style="font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Ordrehistorik</div>
+      ${orders.map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-light);font-size:13px">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="closeModal();openSOModal('${o.id}')">${esc(o.id)}</span>
+        <span style="font-size:12px;color:var(--ink-3)">${o.date||'—'}</span>
+        <span style="flex:1;font-size:12px;color:var(--ink-3)">${(o.lines||[]).length} linjer</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600">${kr(orderTotal(o))}</span>
+        <span class="badge ${SO_STATUS_BADGE[o.status]||'badge-gray'}">${SO_STATUS_LABEL[o.status]||o.status}</span>
+      </div>`).join('')}
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Luk</button>
+      <button class="btn btn-primary" onclick="closeModal();openSOModal(null);setTimeout(()=>{document.getElementById('so-customer').value=${JSON.stringify(latest.customer)};fillCustomerFromHistory();},150)">+ Ny ordre til kunden</button>
+    </div>`;
+  openModal();
+}
 
 // Kundekartotek: udfyld tomme adressefelter fra kundens seneste ordre
 function fillCustomerFromHistory(){
@@ -9112,6 +9392,71 @@ async function printFollowSeddel(soId){
   win.document.close();
 }
 
+// Faktura-print: linjer med priser, total inkl. moms + "heraf moms"-linje
+async function printFaktura(soId){
+  await loadSO();
+  const so=allSO.find(s=>s.id===soId);
+  if(!so){ toast('Ordren findes ikke'); return; }
+  const lines=(so.lines||[]).map(l=>{
+    const it=items.find(i=>i.id===l.itemId);
+    const qty=parseInt(l.qty)||1, price=parseFloat(l.salePrice)||0;
+    return { name:l.name||it?.name||'—', sku:it?.sku||'', qty, price, total:qty*price };
+  });
+  const total=lines.reduce((s,l)=>s+l.total,0);
+  const moms=total*0.2; // 25% moms = 20% af prisen inkl. moms
+  const kr=v=>v.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})+' kr.';
+  const win=window.open('','_blank');
+  if(!win){ toast('Pop-up blokeret — tillad pop-ups for at printe'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="da"><head><meta charset="utf-8"><title>Faktura ${esc(so.id)}</title>
+  <style>
+    body{font-family:-apple-system,'Segoe UI',sans-serif;color:#1a1a1a;max-width:700px;margin:40px auto;padding:0 24px;font-size:14px;line-height:1.5}
+    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1a1a1a;padding-bottom:16px;margin-bottom:24px}
+    h1{font-size:22px;margin:0 0 4px}
+    .muted{color:#666;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin:24px 0 8px}
+    th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#666;border-bottom:1.5px solid #1a1a1a;padding:6px 8px}
+    td{padding:8px;border-bottom:1px solid #ddd}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .totals{margin-left:auto;width:280px}
+    .totals div{display:flex;justify-content:space-between;padding:4px 8px;font-size:13px}
+    .totals .grand{border-top:2px solid #1a1a1a;font-weight:700;font-size:15px;margin-top:4px;padding-top:8px}
+    @media print{ body{margin:0 auto} }
+  </style></head><body>
+  <div class="head">
+    <div>
+      <h1>Faktura</h1>
+      <div class="muted">Fakturanr. ${esc(so.id)} · ${esc(so.date||new Date().toISOString().slice(0,10))}</div>
+    </div>
+    <div style="text-align:right">
+      <strong>${esc(SENDER_INFO.name)}</strong><br>
+      <span class="muted">${esc(SENDER_INFO.address)}<br>${esc(SENDER_INFO.zip)} ${esc(SENDER_INFO.city)}<br>${esc(SENDER_INFO.email)} · ${esc(SENDER_INFO.phone)}</span>
+    </div>
+  </div>
+  <div style="margin-bottom:8px">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Faktureres til</div>
+    <strong>${esc(so.customer||'—')}</strong><br>
+    ${so.address?esc(so.address)+'<br>':''}
+    ${(so.zip||so.city)?esc((so.zip||'')+' '+(so.city||''))+'<br>':''}
+    ${so.email?'<span class="muted">'+esc(so.email)+'</span>':''}
+  </div>
+  <table>
+    <thead><tr><th>Vare</th><th style="width:100px">Varenr.</th><th class="num" style="width:60px">Antal</th><th class="num" style="width:110px">Stykpris</th><th class="num" style="width:110px">Beløb</th></tr></thead>
+    <tbody>
+      ${lines.map(l=>`<tr><td>${esc(l.name)}</td><td class="muted">${esc(l.sku||'—')}</td><td class="num">${l.qty}</td><td class="num">${kr(l.price)}</td><td class="num">${kr(l.total)}</td></tr>`).join('')}
+    </tbody>
+  </table>
+  <div class="totals">
+    <div><span>Subtotal ekskl. moms</span><span>${kr(total-moms)}</span></div>
+    <div><span>Moms (25%)</span><span>${kr(moms)}</span></div>
+    <div class="grand"><span>Total inkl. moms</span><span>${kr(total)}</span></div>
+  </div>
+  ${so.note?`<div class="muted" style="margin-top:24px"><strong>Note:</strong> ${esc(so.note)}</div>`:''}
+  <div class="muted" style="margin-top:36px;text-align:center">Alle priser i DKK inkl. 25% moms · ${esc(SENDER_INFO.name)} · ${esc(SENDER_INFO.email)}</div>
+  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 300); };<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
 // Kobl en nyoprettet forsendelse til salgsordren: pakkeindhold fra ordrelinjer,
 // ordre-status → afsendt og lagertræk (deductSOLines er guarded mod dobbelt-træk)
 async function linkShipmentToSO(soId, sid){
@@ -9203,6 +9548,72 @@ async function openSOPickList(soId){
 async function finishSOPick(soId){
   closePickModal();
   await setSOStatus(soId,'pakket');
+}
+
+// Batch-plukning: én samlet plukliste for alle ordrer med status ny/pluk
+async function openBatchPickList(){
+  await loadSO();
+  const orders=allSO.filter(s=>(s.status==='ny'||s.status==='pluk')&&s.lines?.length);
+  if(!orders.length){ toast('Ingen ordrer at plukke (status Ny/Pluk med varelinjer)'); return; }
+  // Aggregér linjer pr. vare med ordre-referencer
+  const agg={};
+  orders.forEach(o=>(o.lines||[]).forEach(l=>{
+    if(!l.itemId) return;
+    if(!agg[l.itemId]) agg[l.itemId]={ itemId:l.itemId, qty:0, orders:new Set() };
+    agg[l.itemId].qty+=parseInt(l.qty)||0;
+    agg[l.itemId].orders.add(o.id);
+  }));
+  const lines=Object.values(agg).map(a=>{
+    const item=items.find(i=>i.id===a.itemId)||{};
+    const room=rooms.find(r=>r.id===item.room);
+    return { ...a, name:item.name||a.itemId, sku:item.sku||'', roomName:room?.name||'Ukendt rum',
+             shelf:item.shelf||'—', inStock:parseInt(item.qty||0), orderList:[...a.orders] };
+  }).sort((a,b)=>a.roomName.localeCompare(b.roomName,'da')||(a.shelf||'').localeCompare(b.shelf||'','da'));
+  const grouped={};
+  lines.forEach(l=>{ if(!grouped[l.roomName]) grouped[l.roomName]=[]; grouped[l.roomName].push(l); });
+
+  const title=document.getElementById('pick-modal-title');
+  if(title) title.textContent=`Samlet plukliste — ${orders.length} ordrer`;
+  document.getElementById('pick-modal-body').innerHTML=`
+    <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--ink-3)">
+      Ordrer: ${orders.map(o=>`<strong>${esc(o.id)}</strong> (${esc(o.customer||'—')})`).join(' · ')}
+    </div>
+    ${Object.entries(grouped).map(([room,rls])=>`
+      <div style="margin-bottom:18px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin-bottom:8px">📍 ${esc(room)}</div>
+        ${rls.map(l=>`<div style="display:grid;grid-template-columns:24px 1fr 60px 60px 70px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <input type="checkbox" style="width:16px;height:16px">
+          <div>
+            <div style="font-size:13px;font-weight:600">${esc(l.name)}</div>
+            <div style="font-size:11px;color:var(--ink-3)">${l.sku?`<span style="font-family:'IBM Plex Mono',monospace">${esc(l.sku)}</span> · `:''}til ${l.orderList.map(esc).join(', ')}</div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-3);text-align:center">${esc(l.shelf)}</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;text-align:center">${l.qty}</div>
+          <div style="font-size:11px;color:${l.inStock>=l.qty?'var(--green)':'var(--red)'};text-align:right">${l.inStock} på lager</div>
+        </div>`).join('')}
+      </div>`).join('')}
+    <div style="margin-top:20px;padding-top:12px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;font-size:13px;font-weight:600">
+      <span>Total: ${lines.reduce((s,l)=>s+l.qty,0)} stk · ${lines.length} varenumre · ${orders.length} ordrer</span>
+      <span>Plukket af: _______________</span>
+    </div>
+    <div style="margin-top:16px;text-align:right" class="no-print">
+      <button class="btn btn-primary" onclick="finishBatchPick(${JSON.stringify(orders.map(o=>o.id)).replace(/"/g,'&quot;')})">✓ Alt plukket — markér ${orders.length} ordrer som pakket</button>
+    </div>`;
+  document.getElementById('pick-modal-overlay').style.display='flex';
+}
+
+async function finishBatchPick(soIds){
+  closePickModal();
+  let ok=0;
+  for(const id of soIds){
+    const so=allSO.find(s=>s.id===id);
+    if(!so||so.status==='pakket'||so.status==='afsendt') continue;
+    so.status='pakket';
+    const r=await jsonp({ action:'saveSalgsordre', ...soToRow(so) });
+    if(!r?.error) ok++;
+  }
+  await renderSO();
+  toast(`${ok} ordre${ok===1?'':'r'} markeret som pakket ✓`);
 }
 function closePickModal(){ document.getElementById('pick-modal-overlay').style.display='none'; }
 
@@ -9414,7 +9825,11 @@ function buildCmdKIndex(){
     ['Generer månedrapport', ()=>generateMonthlyReport()],
     ['Generer partner-rapport', ()=>generatePartnerReport()],
     ['Eksporter varer som CSV', ()=>exportCSV()],
-    ['Importer varer', ()=>openImportModal()]
+    ['Importer varer', ()=>openImportModal()],
+    ['Systemstatus', ()=>openSystemStatus()],
+    ['Sæsonoverblik (12 mdr.)', ()=>openSeasonReport()],
+    ['Saml plukliste (alle ordrer)', ()=>{ showTab('salgsordrer'); openBatchPickList(); }],
+    ['Scan modtagelse', ()=>{ showTab('indkoebsordrer'); openScanReceive(); }]
   ];
   ACTIONS.forEach(([label,run])=>ix.push({ type:'Handling', icon:'⚡', label, sub:'', key:label.toLowerCase(), run }));
   items.forEach(i=>ix.push({ type:'Vare', icon:'📦', label:i.name, sub:(i.sku?i.sku+' · ':'')+(i.qty||0)+' stk',
@@ -9431,7 +9846,7 @@ function buildCmdKIndex(){
 function renderCmdK(){
   const q=(document.getElementById('cmdk-input').value||'').trim().toLowerCase();
   const ix=buildCmdKIndex();
-  _cmdkResults=q ? ix.filter(r=>r.key.includes(q)).slice(0,10) : ix.slice(0,8);
+  _cmdkResults=q ? ix.filter(r=>wordMatch(r.key, q)).slice(0,10) : ix.slice(0,8);
   if(_cmdkSel>=_cmdkResults.length) _cmdkSel=0;
   const el=document.getElementById('cmdk-results');
   if(!_cmdkResults.length){ el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink-3);font-size:13px">Ingen resultater</div>'; return; }

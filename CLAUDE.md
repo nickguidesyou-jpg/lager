@@ -164,6 +164,14 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - Vare-modal viser seneste 5 bevægelser (`renderItemMovements`) udover lagerprognosen
 - Leverandør-scorecard: "Ø faktisk: Xd · lovet Yd" beregnet fra modtagne PO'er (oprettet → modtaget)
 - Lagerværdi over tid: Lagervaerdi-ark med snapshots (automatisk ved ugentlig backup + manuel 📸-knap); SVG-graf i Oversigt (`getLagervaerdi`/`snapshotLagervaerdi`)
+- Stikords-søgning overalt (`wordMatch`): alle søgeord skal matche, men i vilkårlig rækkefølge — gælder varer, Cmd+K, salgsordrer, historik, pakkeindhold og PO-varesøgning
+- Kunde-side: klik på kundenavn i SO-tabellen → modal med ordrehistorik, totalomsætning og stamdata (`openCustomerModal`)
+- Batch-plukning: "📋 Saml plukliste" aggregerer alle ny/pluk-ordrers linjer pr. vare med ordre-referencer, grupperet efter rum; footer-knap markerer alle som pakket
+- Faktura-print pr. salgsordre ("🧾 Faktura"-knap i redigeringsmodalen — priser, subtotal ekskl. moms, moms 25%, total)
+- Scan-modtagelse: "📷 Scan modtagelse" i Indkøbsordrer — scan stregkode → matcher åben PO-linje → modtag med lager+historik+PO-status (auto-lukker PO når alt er modtaget)
+- Sæsonoverblik i Rapporter: 12 måneders udgående enheder som søjlediagram + top 5 varer (henter fuld historik, limit 10000)
+- Systemstatus (via Cmd+K): API-svartider, seneste backup/lagerværdi-snapshot, betroede enheder (`getSystemStatus` i lager-script, `getTrustInfo` i ship-script)
+- Offline-kø: fejlede skrive-kald (netværksfejl) køes i localStorage og synkes automatisk når forbindelsen er tilbage; ⏳-badge i topbaren viser antal ventende
 - Returflow: markeres en forsendelse "Returneret" tilbydes at lægge pakkeindholdet tilbage på lager (guard: localStorage-flag + historik-note "Retur fra forsendelse X")
 - Dynamisk genbestillingspunkt: "⏳ Bestil snart"-kort i Oversigt (forbrug/dag × leveringstid × 1.2) + ✦ Auto-knap ved min-beholdning i vare-modalen
 - Historik hentes automatisk i baggrunden efter login (ABC/dødt lager/advarsler virker uden at besøge Historik-fanen)
