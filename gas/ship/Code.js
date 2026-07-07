@@ -71,6 +71,7 @@ function doGet(e) {
     else if (action === 'getProducts')     result = getProducts(p);
     else if (action === 'getPricingStats')   result = getPricingStats();
     else if (action === 'getSesuPrices')    result = getSesuPrices(p.forceRefresh);
+    else if (action === 'getCompetitorPrices') result = getCompetitorPrices(p.forceRefresh);
     else if (action === 'getPrinters')     result = getPrinters();
     else if (action === 'getLabel')        result = getLabel(p.id);
     else if (action === 'createShipment')  result = createShipment(p);
@@ -130,6 +131,7 @@ function doPost(e) {
     else if (action === 'getProducts')           result = getProducts(p);
     else if (action === 'getPricingStats')        result = getPricingStats();
     else if (action === 'getSesuPrices')         result = getSesuPrices(p.forceRefresh);
+    else if (action === 'getCompetitorPrices')   result = getCompetitorPrices(p.forceRefresh);
     else if (action === 'getPrinters')           result = getPrinters();
     else if (action === 'getLabel')              result = getLabel(p.id);
     else if (action === 'debugLabel')            result = debugLabel(p.id);
@@ -606,6 +608,163 @@ function getSesuPrices(forceRefresh) {
 
   cache.put(KEY, JSON.stringify(products), 21600);
   return products;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Konkurrent-prisovervågning — KUN GET-scraping. Aldrig Shipmondo.
+// Tilføj nye konkurrenter her: parser 'datalayer' (WooCommerce m.
+// JSON-datalag, fx sesu/planke) eller 'woodmart' (WoodMart-tema u.
+// datalag, fx likehome). urls = kategori-/shop-lister der scrapes.
+// ─────────────────────────────────────────────────────────────
+var COMPETITORS = [
+  {
+    id: 'planke',
+    name: 'Planke-bord',
+    parser: 'datalayer',
+    urls: ['https://planke-bord.dk/produkt-kategori/bordben_hairpin_legs_elegante_klassisk/']
+  },
+  {
+    id: 'likehome',
+    name: 'LikeHome',
+    parser: 'woodmart',
+    urls: ['https://likehome.dk/product-category/spisestue/borde-til-spisestuen/understel-og-bordben/hairpin-bordben/']
+  }
+];
+
+function getCompetitorPrices(forceRefresh) {
+  var cache = CacheService.getScriptCache();
+  var KEY = 'competitor_prices_v1';
+  if (!forceRefresh) {
+    var cached = cache.get(KEY);
+    if (cached) return JSON.parse(cached);
+  }
+
+  var out = { updated: new Date().toISOString(), competitors: {} };
+  for (var ci = 0; ci < COMPETITORS.length; ci++) {
+    var comp = COMPETITORS[ci];
+    var products = [];
+    try {
+      for (var ui = 0; ui < comp.urls.length; ui++) {
+        var res = UrlFetchApp.fetch(comp.urls[ui], { muteHttpExceptions: true, followRedirects: true });
+        if (res.getResponseCode() !== 200) continue;
+        var html = res.getContentText();
+        var parsed = comp.parser === 'woodmart'
+          ? parseWooMart(html)
+          : parseWooDataLayer(html);
+        products = products.concat(parsed);
+      }
+    } catch (e) {
+      out.competitors[comp.id] = { name: comp.name, error: e.message, products: [] };
+      continue;
+    }
+    // Dedupér (WoodMart-temaet renderer samme produkt i både karrusel og grid)
+    var seen = {}, uniq = [];
+    for (var pi = 0; pi < products.length; pi++) {
+      var key = products[pi].sku || products[pi].url || products[pi].name;
+      if (!key || seen[key]) continue;
+      seen[key] = true;
+      uniq.push(products[pi]);
+    }
+    out.competitors[comp.id] = { name: comp.name, products: uniq };
+  }
+
+  cache.put(KEY, JSON.stringify(out), 21600);
+  return out;
+}
+
+// WooCommerce m. JSON-datalag i <li class="product"> (sesu, planke)
+function parseWooDataLayer(html) {
+  var products = [];
+  var chunks = html.split('<li class="product');
+  for (var i = 1; i < chunks.length; i++) {
+    var chunk = chunks[i];
+    var classEnd = chunk.indexOf('>');
+    var liClass = classEnd > 0 ? chunk.substring(0, classEnd) : '';
+    var outofstock = liClass.indexOf('outofstock') !== -1;
+    var mInStock  = chunk.match(/&quot;availability&quot;:&quot;[^&]*InStock/i);
+    var mOutStock = chunk.match(/&quot;availability&quot;:&quot;[^&]*OutOfStock/i);
+    if (mInStock)  outofstock = false;
+    else if (mOutStock) outofstock = true;
+
+    var mSku   = chunk.match(/&quot;sku&quot;:(?:&quot;([^&]*)&quot;|([0-9]+))/);
+    var mPrice = chunk.match(/&quot;price&quot;:([0-9.]+)/);
+    var mName  = chunk.match(/&quot;item_name&quot;:&quot;([^&]*)&quot;/);
+    var mUrl   = chunk.match(/<a href="(https?:\/\/[^"?#]+)"/);
+    if (!mSku && !mName) continue;
+    var sku   = mSku ? (mSku[1] || mSku[2] || '').trim() : '';
+    var price = mPrice ? parseFloat(mPrice[1]) : null;
+    var name  = mName ? decodeEntities(mName[1]) : '';
+    var url   = mUrl ? mUrl[1] : '';
+    var mImg = chunk.match(/(?:data-)?src="(https?:\/\/[^"]*\/wp-content\/uploads\/[^"?]+\.(?:jpg|jpeg|png|webp))"/i);
+    if (price !== null || outofstock) {
+      products.push({ sku: sku, name: name, price: price, url: url, outofstock: outofstock, image: mImg ? mImg[1] : '' });
+    }
+  }
+  return products;
+}
+
+// WoodMart-tema u. datalag — klassisk WooCommerce-HTML (likehome)
+function parseWooMart(html) {
+  var products = [];
+  var chunks = html.split(/<div[^>]*class="[^"]*product-grid-item/);
+  for (var i = 1; i < chunks.length; i++) {
+    var chunk = chunks[i];
+    var classEnd = chunk.indexOf('>');
+    var wrapClass = classEnd > 0 ? chunk.substring(0, classEnd) : '';
+    var outofstock = wrapClass.indexOf('outofstock') !== -1;
+
+    var mName = chunk.match(/woocommerce-loop-product__title[^>]*>([\s\S]*?)<\/a>/);
+    if (!mName) mName = chunk.match(/wd-entities-title[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/);
+    var name = mName ? decodeEntities(stripTags(mName[1])) : '';
+
+    // Flere priskomponenter = før-/tilbudspris → laveste er den aktuelle pris
+    var priceMatches = chunk.match(/woocommerce-Price-amount[^>]*>\s*<bdi>([\s\S]*?)<\/bdi>/g) || [];
+    var prices = [];
+    for (var j = 0; j < priceMatches.length; j++) {
+      var pm = priceMatches[j].match(/<bdi>([\s\S]*?)<\/bdi>/);
+      if (pm) { var n = parseDkPrice(pm[1]); if (n !== null) prices.push(n); }
+    }
+    var price = prices.length ? Math.min.apply(null, prices) : null;
+
+    var mUrl = chunk.match(/<a href="(https?:\/\/[^"?#]+\/product\/[^"?#]+)"/);
+    if (!mUrl) mUrl = chunk.match(/<a href="(https?:\/\/[^"?#]+)"/);
+    var mSku = chunk.match(/data-product_sku="([^"]*)"/);
+    var mImg = chunk.match(/(?:data-)?src="(https?:\/\/[^"]*\/wp-content\/uploads\/[^"?]+\.(?:jpg|jpeg|png|webp))"/i);
+    if (name && (price !== null || outofstock)) {
+      products.push({
+        sku: mSku ? mSku[1] : '',
+        name: name,
+        price: price,
+        url: mUrl ? mUrl[1] : '',
+        outofstock: outofstock,
+        image: mImg ? mImg[1] : ''
+      });
+    }
+  }
+  return products;
+}
+
+function stripTags(s) { return String(s).replace(/<[^>]+>/g, ''); }
+
+function parseDkPrice(s) {
+  s = stripTags(s).replace(/[^0-9.,]/g, '');
+  if (!s) return null;
+  s = s.replace(/\./g, '').replace(',', '.'); // dansk: punktum=tusind, komma=decimal
+  var n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&#8211;/g, '-')
+    .replace(/&#8217;/g, "'")
+    .replace(/&#(\d+);/g, function(m, d) { return String.fromCharCode(parseInt(d, 10)); })
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getPricingStats() {

@@ -1555,6 +1555,7 @@ body.compact .low-row { padding: 8px 16px; }
           </div>
         </div>
         <div id="ov-sesu-alerts" style="margin-top:16px"></div>
+        <div id="ov-competitor" style="margin-top:16px"></div>
         <div id="ov-avance" style="margin-top:16px"></div>
         <div id="ov-lagervaerdi-graf" style="margin-top:16px"></div>
         <div id="ov-reorder-dyn" style="margin-top:16px"></div>
@@ -2288,7 +2289,7 @@ async function loadAll(quiet){
   }
 }
 
-function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderOverviewAvance(); renderOverviewLagervaerdiGraf(); renderSesuAlerts(); setTimeout(animateStatCards, 50); }
+function renderAll(){ renderOverview(); renderItems(); renderRooms(); renderIndkob(); renderOversigtsAdvarsler(); renderTop10(); renderOverviewABC(); renderOverviewDamaged(); renderOverviewDeadStock(); renderOverviewReorder(); renderOverviewAvance(); renderOverviewLagervaerdiGraf(); renderSesuAlerts(); renderCompetitorCard(); setTimeout(animateStatCards, 50); }
 
 function renderOverviewABC(){
   const el=document.getElementById('ov-abc'); if(!el) return;
@@ -2764,6 +2765,197 @@ function renderSesuAlerts(){
       }).join('')}
     </div>
   </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// KONKURRENT-PRISOVERVÅGNING (planke-bord, likehome m.fl.)
+// Backend: getCompetitorPrices i ship-scriptet (kun GET-scraping).
+// Genbruger normName/wordScore/colorsCompatible til farve-bevidst
+// matching — konkurrenter der kun fører "sort" matcher ikke hvide varer.
+// ─────────────────────────────────────────────────────────────
+let competitorData = null;      // { updated, competitors:{id:{name,products}} }
+let competitorProducts = [];    // fladt: [{compId, compName, sku, name, price, url, outofstock, norm, cat}]
+let competitorLoaded = false;
+let _competitorPromise = null;
+
+async function loadCompetitorPrices(forceRefresh){
+  if(competitorLoaded && !forceRefresh) return;
+  if(_competitorPromise && !forceRefresh) return _competitorPromise;
+  if(forceRefresh){ competitorLoaded=false; _competitorPromise=null; }
+  _competitorPromise = (async ()=>{
+    const statusEl=document.getElementById('comp-status');
+    if(statusEl) statusEl.textContent='— henter…';
+    try{
+      const d=await jsonpShipSlow({ action:'getCompetitorPrices', forceRefresh: forceRefresh?true:undefined });
+      if(d && !d.error && d.competitors){
+        competitorData=d;
+        competitorProducts=[];
+        for(const cid in d.competitors){
+          const c=d.competitors[cid];
+          (c.products||[]).forEach(p=>{
+            competitorProducts.push({
+              compId:cid, compName:c.name, sku:p.sku||'', name:p.name||'',
+              price:(p.price!=null?p.price:null), url:p.url||'', outofstock:!!p.outofstock,
+              norm:normName(p.name||''), cat:productCategory(p.name||'')
+            });
+          });
+        }
+        competitorLoaded=true;
+        if(statusEl) statusEl.textContent='✓ '+competitorProducts.length+' produkter';
+        checkCompetitorChanges();
+        renderCompetitorCard();
+      } else {
+        if(statusEl) statusEl.textContent='— fejl';
+        _competitorPromise=null;
+      }
+    }catch(e){
+      const statusEl=document.getElementById('comp-status');
+      if(statusEl) statusEl.textContent='— timeout';
+      _competitorPromise=null;
+    }
+  })();
+  return _competitorPromise;
+}
+
+// Alle konkurrent-produkter der matcher en vare (farve- og kategori-bevidst)
+function findCompetitorMatches(item){
+  const nn=normName(item.name);
+  if(!nn) return [];
+  const itemCat=productCategory(item.name);
+  const matches=[];
+  competitorProducts.forEach(p=>{
+    if(p.price==null) return;
+    if(itemCat!=='other' && p.cat!=='other' && p.cat!==itemCat) return;
+    const score = p.norm===nn ? 1 : wordScore(nn, p.norm);
+    if(score < 0.28) return;
+    if(!colorsCompatible(nn, p.norm)) return; // "kun i sort" matcher ikke hvide/messing varer
+    matches.push(Object.assign({}, p, { score }));
+  });
+  matches.sort((a,b)=> (a.price-b.price) || (b.score-a.score));
+  return matches;
+}
+
+function competitorKey(p){ return p.compId+'::'+(p.sku||p.url||p.name); }
+
+// Snapshot-baseret ændringsdetektion (pris + lager), som sesu-prisalarmen
+function checkCompetitorChanges(){
+  try{
+    const SNAP='lager_competitor_snapshot';
+    const matchedKeys=new Set();
+    items.forEach(it=>findCompetitorMatches(it).forEach(m=>matchedKeys.add(competitorKey(m))));
+    let snap={}; try{ snap=JSON.parse(localStorage.getItem(SNAP)||'{}'); }catch(e){}
+    const changes=[];
+    competitorProducts.forEach(p=>{
+      const k=competitorKey(p);
+      if(!matchedKeys.has(k)) return;
+      const old=snap[k];
+      if(!old) return; // første observation → ingen alarm
+      if(old.price!=null && p.price!=null && old.price!==p.price)
+        changes.push({ type:'price', comp:p.compName, name:p.name, from:old.price, to:p.price });
+      if(!!old.outofstock!==!!p.outofstock)
+        changes.push({ type:'stock', comp:p.compName, name:p.name, to:!!p.outofstock });
+    });
+    const newSnap={};
+    competitorProducts.forEach(p=>{ const k=competitorKey(p); if(matchedKeys.has(k)) newSnap[k]={price:p.price,outofstock:!!p.outofstock}; });
+    localStorage.setItem(SNAP,JSON.stringify(newSnap));
+    if(changes.length){
+      localStorage.setItem('lager_competitor_changes',JSON.stringify({ts:Date.now(),changes}));
+      toast(`⚠ ${changes.length} konkurrent-ændring${changes.length===1?'':'er'} — se Oversigt`);
+    }
+  }catch(e){}
+}
+
+function dismissCompetitorAlerts(){ localStorage.removeItem('lager_competitor_changes'); renderCompetitorCard(); }
+
+function renderCompetitorCard(){
+  const el=document.getElementById('ov-competitor'); if(!el) return;
+  if(!competitorLoaded){ el.innerHTML=''; return; }
+
+  // Rækker for varer med mindst ét konkurrent-match
+  const rows=[];
+  items.forEach(it=>{
+    const m=findCompetitorMatches(it);
+    if(!m.length) return;
+    const mine=parseFloat(it.sale_price)||null;
+    rows.push({ item:it, mine, cheapest:m[0], count:m.length, all:m });
+  });
+
+  const updated=competitorData?.updated ? new Date(competitorData.updated).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+  const compNames=competitorData?.competitors ? Object.values(competitorData.competitors).map(c=>esc(c.name)).join(', ') : '';
+
+  // Ændrings-alarm (pris/lager)
+  let changeData=null;
+  try{ changeData=JSON.parse(localStorage.getItem('lager_competitor_changes')||'null'); }catch(e){}
+  let alertHtml='';
+  if(changeData?.changes?.length){
+    const when=new Date(changeData.ts).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    alertHtml=`<div style="background:var(--bg-2);border-radius:8px;padding:12px 14px;margin-bottom:12px;border-left:3px solid var(--blue)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:600;color:var(--blue)">🔔 ${changeData.changes.length} ændring${changeData.changes.length===1?'':'er'} siden sidst</span>
+        <span style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;color:var(--ink-3)">${when}</span><button class="btn btn-ghost btn-sm" onclick="dismissCompetitorAlerts()">Afvis</button></span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${changeData.changes.map(c=>{
+          if(c.type==='price'){ const up=c.to>c.from;
+            return `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px"><span>${esc(c.comp)} · ${esc(c.name)}</span><span style="font-family:'IBM Plex Mono',monospace;color:${up?'var(--red)':'var(--green)'}">${c.from.toLocaleString('da-DK')} → ${c.to.toLocaleString('da-DK')} kr. ${up?'▲':'▼'}</span></div>`;
+          }
+          return `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px"><span>${esc(c.comp)} · ${esc(c.name)}</span><span style="font-weight:600;color:${c.to?'var(--red)':'var(--green)'}">${c.to?'Udsolgt':'Tilbage på lager'}</span></div>`;
+        }).join('')}
+      </div></div>`;
+  }
+
+  const header=`<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+      <div><span style="font-size:13px;font-weight:600">🏷 Konkurrentpriser</span> <span style="font-size:11px;color:var(--ink-3)">${compNames}</span></div>
+      <div style="display:flex;gap:10px;align-items:baseline">
+        <span id="comp-status" style="font-size:11px;color:var(--ink-3)"></span>
+        ${updated?`<span style="font-size:11px;color:var(--ink-3)">opdateret ${updated}</span>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="loadCompetitorPrices(true).then(()=>toast('Konkurrentpriser genindlæst ✓'))" title="Tving genindlæsning (omgår 6t cache)">↺ Genindlæs</button>
+      </div>
+    </div>`;
+
+  if(!rows.length){
+    el.innerHTML=`<div class="card" style="padding:16px 20px">${header}${alertHtml}
+      <div style="font-size:12px;color:var(--ink-3)">Ingen af dine varer matchede et konkurrent-produkt endnu. Konkurrenterne fører pt. kun sorte hairpin-ben — hvide/messing-varianter matches derfor ikke.</div></div>`;
+    return;
+  }
+
+  // Sorter: dyrest-hos-dig-relativt-til-konkurrent først (størst risiko/mulighed)
+  rows.sort((a,b)=>{
+    const da=(a.mine!=null)?(a.mine-a.cheapest.price):-1e9;
+    const db=(b.mine!=null)?(b.mine-b.cheapest.price):-1e9;
+    return db-da;
+  });
+
+  const body=rows.map(r=>{
+    const c=r.cheapest;
+    let mineHtml='<span style="color:var(--ink-3)">—</span>';
+    let deltaHtml='';
+    if(r.mine!=null){
+      const diff=r.mine-c.price;
+      const cheaper=diff<=0;
+      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>`;
+      deltaHtml=`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cheaper?'var(--green)':'var(--red)'}">${cheaper?'':'+'}${diff.toLocaleString('da-DK')} kr. ${cheaper?'✓ billigst':'▲ dyrere'}</span>`;
+    }
+    const others=r.count>1?` <span style="font-size:10px;color:var(--ink-3)">+${r.count-1} flere</span>`:'';
+    const cUrl=c.url?`href="${esc(c.url)}" target="_blank" rel="noopener"`:'';
+    return `<tr style="border-top:1px solid var(--line)">
+      <td style="padding:7px 8px;font-size:12px">${esc(r.item.name)}</td>
+      <td style="padding:7px 8px;text-align:right">${mineHtml}</td>
+      <td style="padding:7px 8px;text-align:right"><a ${cUrl} style="font-family:'IBM Plex Mono',monospace;color:var(--ink)">${c.price.toLocaleString('da-DK')} kr.</a>${c.outofstock?' <span style="font-size:10px;color:var(--red)">(udsolgt)</span>':''}</td>
+      <td style="padding:7px 8px;font-size:11px;color:var(--ink-3)">${esc(c.compName)}${others}</td>
+      <td style="padding:7px 8px;text-align:right">${deltaHtml}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML=`<div class="card" style="padding:16px 20px">${header}${alertHtml}
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3)">
+        <th style="text-align:left;padding:0 8px 6px">Vare</th>
+        <th style="text-align:right;padding:0 8px 6px">Din pris</th>
+        <th style="text-align:right;padding:0 8px 6px">Billigst hos konkurrent</th>
+        <th style="text-align:left;padding:0 8px 6px">Hvem</th>
+        <th style="text-align:right;padding:0 8px 6px">Forskel</th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
 async function assignSesuSku(itemId, sku) {
@@ -3668,6 +3860,7 @@ function showTab(t){
     if(sc && (sc==='Alle'||CATS.includes(sc))) activeCat=sc;
   }
   const priceReady = loadSesuPrices();
+  if(t === 'oversigt') loadCompetitorPrices();
   if(t === 'forsendelser' && !shipLoaded) priceReady.then(()=>{ if(!shipLoaded) loadShipments(); });
   if(t === 'forsendelser' && !templatesLoaded) loadTemplates();
   if(t === 'priser') renderStaticCarrierCards();
