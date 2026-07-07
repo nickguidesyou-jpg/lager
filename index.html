@@ -2583,39 +2583,52 @@ async function loadSesuPrices(forceRefresh) {
   const statusEl = document.getElementById('sesu-status');
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = '— henter…';
+  function applySesuData(d, fromCache){
+    // d may be {sku: {price, name}} (v2) or {sku: price} (v1 cached)
+    sesuPrices = {};
+    sesuByName = {};
+    sesuUrls = {};
+    sesuProducts = [];
+    for(const sku in d){
+      const v = d[sku];
+      if(typeof v === 'object' && v !== null){
+        sesuPrices[sku] = v.price;
+        if(v.url) sesuUrls[sku] = v.url;
+        if(v.image) sesuImages[sku] = v.image;
+        if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name, url: v.url || '', image: v.image || '', outofstock: !!v.outofstock };
+        sesuProducts.push({ sku, price: v.price, name: v.name || sku, url: v.url || '', image: v.image || '', outofstock: !!v.outofstock });
+      } else {
+        sesuPrices[sku] = v;
+        sesuProducts.push({ sku, price: v, name: sku, url: '' });
+      }
+    }
+    sesuProducts.sort((a,b)=>a.name.localeCompare(b.name,'da'));
+    sesuPricesLoaded = true;
+    if(statusEl) statusEl.textContent = (fromCache?'⚠ ':'✓ ') + Object.keys(sesuPrices).length + ' priser' + (fromCache?' (gemt kopi)':'');
+    renderItems();
+    if(!fromCache) checkSesuPriceChanges(); // prisalarm kun mod friske data — cached kopi ville give falske ændringer
+    renderCompetitorCard(); // opdater "Din pris"-fallback (sesu.dk) hvis konkurrentkortet er indlæst
+  }
+  // Fejlet scrape må ikke efterlade rapport/matching uden data — brug seneste succesfulde datasæt (op til 48t)
+  function applyLastGood(){
+    if(sesuPricesLoaded) return true; // behold det vi allerede har i hukommelsen
+    try{
+      const lg=JSON.parse(localStorage.getItem('lager_sesu_lastgood')||'null');
+      if(lg?.data && Date.now()-lg.ts < 48*3600000){ applySesuData(lg.data, true); return true; }
+    }catch(e){}
+    return false;
+  }
   try {
     const d = await jsonpShipSlow({ action:'getSesuPrices', forceRefresh: forceRefresh ? true : undefined });
     if(d && !d.error && Object.keys(d).length > 0) {
-      // d may be {sku: {price, name}} (v2) or {sku: price} (v1 cached)
-      sesuPrices = {};
-      sesuByName = {};
-      sesuUrls = {};
-      sesuProducts = [];
-      for(const sku in d){
-        const v = d[sku];
-        if(typeof v === 'object' && v !== null){
-          sesuPrices[sku] = v.price;
-          if(v.url) sesuUrls[sku] = v.url;
-          if(v.image) sesuImages[sku] = v.image;
-          if(v.name) sesuByName[normName(v.name)] = { price: v.price, sku, name: v.name, url: v.url || '', image: v.image || '', outofstock: !!v.outofstock };
-          sesuProducts.push({ sku, price: v.price, name: v.name || sku, url: v.url || '', image: v.image || '', outofstock: !!v.outofstock });
-        } else {
-          sesuPrices[sku] = v;
-          sesuProducts.push({ sku, price: v, name: sku, url: '' });
-        }
-      }
-      sesuProducts.sort((a,b)=>a.name.localeCompare(b.name,'da'));
-      sesuPricesLoaded = true;
-      if(statusEl) statusEl.textContent = '✓ ' + Object.keys(sesuPrices).length + ' priser';
-      renderItems();
-      checkSesuPriceChanges();
-      renderCompetitorCard(); // opdater "Din pris"-fallback (sesu.dk) hvis konkurrentkortet er indlæst
+      applySesuData(d, false);
+      try{ localStorage.setItem('lager_sesu_lastgood', JSON.stringify({ ts:Date.now(), data:d })); }catch(e){}
     } else {
-      if(statusEl) statusEl.textContent = '— fejl';
+      if(!applyLastGood() && statusEl) statusEl.textContent = '— fejl' + (d?.error?' · '+d.error:'');
       _sesuPricesPromise = null; // allow retry
     }
   } catch(e) {
-    if(statusEl) statusEl.textContent = '— timeout';
+    if(!applyLastGood() && statusEl) statusEl.textContent = '— timeout';
     _sesuPricesPromise = null; // allow retry
   }
   if(btn) btn.disabled = false;
@@ -2966,8 +2979,7 @@ function renderCompetitorCard(){
     if(r.mine!=null){
       const diff=r.mine-c.price;
       const cheaper=diff<=0;
-      const srcHint=r.mineSrc==='sesu'?` <span style="font-size:9px;color:var(--ink-3)" title="Din sesu.dk-pris (ingen egen salgspris sat)">sesu</span>`:'';
-      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>${srcHint}`;
+      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>`;
       deltaHtml=`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cheaper?'var(--green)':'var(--red)'}">${cheaper?'':'+'}${diff.toLocaleString('da-DK')} kr. ${cheaper?'✓ billigst':'▲ dyrere'}</span>`;
     }
     const others=r.count>1?` <span style="font-size:10px;color:var(--ink-3)">+${r.count-1} flere</span>`:'';
