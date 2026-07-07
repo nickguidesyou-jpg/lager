@@ -177,6 +177,7 @@ SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e
 - Historik hentes automatisk i baggrunden efter login (ABC/dødt lager/advarsler virker uden at besøge Historik-fanen)
 - Dødt lager-kort i Oversigt (varer uden afgang i 90+ dage, med bundet værdi)
 - sesu.dk prisalarm (kort i Oversigt ved pris-/lagerændringer på matchede varer)
+- Konkurrent-prisovervågning: `getCompetitorPrices` i ship-scriptet scraper konkurrent-webshops (kun GET, 6t cache). To WooCommerce-parsere — `parseWooDataLayer` (JSON-datalag i `<li class="product">`, fx planke-bord.dk) og `parseWooMart` (WoodMart-tema uden datalag, fx likehome.dk). Nye konkurrenter tilføjes i `COMPETITORS`-arrayet (id, name, parser, urls). Frontend: `loadCompetitorPrices`/`findCompetitorMatches` (farve- og kategori-bevidst matching via `wordScore`+`colorsCompatible` — konkurrenter der kun fører sort matcher ikke hvide/messing-varer), `renderCompetitorCard` (Konkurrentpriser-kort i Oversigt: din pris vs. billigste konkurrent + snapshot-baseret pris/lager-ændringsalarm i `lager_competitor_snapshot`/`lager_competitor_changes`)
 - Ugentlig backup: `weeklyBackup()` i lager-script dumper alle ark som JSON til Drive-mappen "Lager Backups" (12 nyeste beholdes). **Kræver engangs-opsætning:** kør `setupBackupTrigger()` manuelt i Apps Script-editoren og godkend Drive-adgang
 - TOTP 2FA med Google Authenticator
 - AI-lageranalyse via Claude (genbestillingsforslag m.m.)
