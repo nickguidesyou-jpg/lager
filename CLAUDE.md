@@ -115,15 +115,18 @@ Begge er `fetch POST` med `Content-Type: text/plain` (undgår CORS-preflight). H
 
 ## sesu.dk pris-matching
 
-Matching sker i to trin:
+Matching sker i tre trin:
 1. SKU-opslag (eksakt match)
-2. Name-matching via `normName` + `wordScore` (Jaccard ≥ 0.28)
+2. Manuel pin (`SESU_PINS` i index.html): drilske varer koblet direkte til deres sesu-sku via normName-tokens. Mangler den pinnede sku i scrapet, vises varen som "ikke til salg" i stedet for at navnematche en forkert variant. Pinnet pt.: Skrå Trapez Messing 71cm → 12047, V-hairpin Messing 71cm → 12645
+3. Name-matching via `normName` + `wordScore` (Jaccard ≥ 0.28)
 
 **Farve-tokens** skal alle matche (ikke bare ét): `REPORT_COLOR_TOKENS` inkluderer `rose`, `brush`, `gunmetal`, `messing`, `bronze`, `velvet`, `steel` m.fl.
 
 Outofstock-detektion: CSS-klasse på listingside + JSON-LD availability + second-pass verifikation på produktside.
 
 **Vigtigt ved scraping-parsing:** sku i sesu.dk's datalag kan være både citeret streng (`&quot;sku&quot;:&quot;909&quot;`) og rent tal (`&quot;sku&quot;:12047`) — regexen skal håndtere begge. Produktpermalink identificeres via `class="woocommerce-LoopProduct-link"` (kategorilinks i samme chunk har `rel="tag"`).
+
+**Scrape-robusthed:** Hver listingside prøves op til 2 gange og springes over ved vedvarende fejl (aldrig `break` — en transient fejl på én side må ikke amputere resultatet). Resultater med <10 produkter forkastes uden caching (returnerer `{error}`). Frontend gemmer seneste succesfulde datasæt i localStorage (`lager_sesu_lastgood`, 48t) som fallback ved fejlet scrape — prisalarm kører kun mod friske data.
 
 ---
 

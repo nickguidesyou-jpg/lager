@@ -520,7 +520,7 @@ function getProducts(p) {
 
 function getSesuPrices(forceRefresh) {
   var cache = CacheService.getScriptCache();
-  var KEY = 'sesu_prices_v10';
+  var KEY = 'sesu_prices_v11';
   if (!forceRefresh) {
     var cached = cache.get(KEY);
     if (cached) return JSON.parse(cached);
@@ -530,9 +530,19 @@ function getSesuPrices(forceRefresh) {
 
   for (var page = 1; page <= 12; page++) {
     var pageUrl = 'https://sesu.dk/shop/page/' + page + '/';
-    var res = UrlFetchApp.fetch(pageUrl, { muteHttpExceptions: true });
-    var html = res.getContentText();
-    if (res.getResponseCode() !== 200 || html.indexOf('sku&quot;') === -1) break;
+    // Transiente fejl (rate limit, timeout) må IKKE amputere resultatet — en manglende side
+    // fik tidligere navnematching til at falde tilbage på forkerte (udsolgte) varianter.
+    // Prøv siden op til 2 gange og spring den over ved vedvarende fejl i stedet for at breake.
+    var html = null;
+    for (var attempt = 0; attempt < 2 && html === null; attempt++) {
+      if (attempt > 0) Utilities.sleep(600);
+      try {
+        var res = UrlFetchApp.fetch(pageUrl, { muteHttpExceptions: true });
+        var body = res.getContentText();
+        if (res.getResponseCode() === 200 && body.indexOf('sku&quot;') !== -1) html = body;
+      } catch (e) { /* netværksfejl → retry/skip */ }
+    }
+    if (html === null) continue; // side forbi sidste side ELLER vedvarende fejl — videre til næste
 
     var chunks = html.split('<li class="product');
     for (var i = 1; i < chunks.length; i++) {
@@ -606,6 +616,12 @@ function getSesuPrices(forceRefresh) {
     }
   }
 
+  // Cache ALDRIG et mistænkeligt lille resultat — et amputeret scrape (fejlede sider)
+  // ville ellers forgifte cachen i 6 timer og give forkerte udsolgt-markeringer i rapporten
+  var count = Object.keys(products).length;
+  if (count < 10) {
+    return { error: 'sesu.dk-scrape gav kun ' + count + ' produkter — resultat forkastet, prøv igen om lidt' };
+  }
   cache.put(KEY, JSON.stringify(products), 21600);
   return products;
 }

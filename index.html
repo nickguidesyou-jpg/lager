@@ -2858,6 +2858,20 @@ async function loadCompetitorPrices(forceRefresh){
 }
 
 // Alle konkurrent-produkter der matcher en vare (farve- og kategori-bevidst)
+// Pakkestørrelse ud fra navnet — så en "sæt á 4 stk" til 749 kr sammenlignes
+// pr. stk (187), ikke mod din enkelt-bens pris. VIGTIGT: "2 rod"/"3 rod" er
+// benets design (antal stænger), IKKE pakkeantal — matches derfor ikke her.
+function packQty(name){
+  const s=(name||'').toLowerCase();
+  let m=s.match(/s[æa]t\s*[aá]?\s*(\d+)/);      // "sæt á 4", "sæt a 4", "sæt 4"
+  if(m && +m[1]>0) return +m[1];
+  m=s.match(/(\d+)\s*stk/);                       // "4 stk", "4 Stk."
+  if(m && +m[1]>0) return +m[1];
+  m=s.match(/\b[x×]\s*(\d+)\b/);                  // "x4"
+  if(m && +m[1]>0) return +m[1];
+  return 1;
+}
+
 function findCompetitorMatches(item){
   const nn=normName(item.name);
   if(!nn) return [];
@@ -2869,9 +2883,10 @@ function findCompetitorMatches(item){
     const score = p.norm===nn ? 1 : wordScore(nn, p.norm);
     if(score < 0.28) return;
     if(!colorsCompatible(nn, p.norm)) return; // "kun i sort" matcher ikke hvide/messing varer
-    matches.push(Object.assign({}, p, { score }));
+    const qty=packQty(p.name);
+    matches.push(Object.assign({}, p, { score, qty, unitPrice: p.price/qty }));
   });
-  matches.sort((a,b)=> (a.price-b.price) || (b.score-a.score));
+  matches.sort((a,b)=> (a.unitPrice-b.unitPrice) || (b.score-a.score)); // billigst pr. stk først
   return matches;
 }
 
@@ -2923,7 +2938,9 @@ function renderCompetitorCard(){
       const sp=findSesuPrice(it.name, it.sku);
       if(sp && sp.price!=null){ mine=sp.price; mineSrc='sesu'; }
     }
-    rows.push({ item:it, mine, mineSrc, cheapest:m[0], count:m.length, all:m });
+    const itemQty=packQty(it.name);                 // normalt 1 (enkelt ben)
+    const mineUnit=(mine!=null)?mine/itemQty:null;   // din pris pr. stk
+    rows.push({ item:it, mine, mineUnit, itemQty, mineSrc, cheapest:m[0], count:m.length, all:m });
   });
 
   const updated=competitorData?.updated ? new Date(competitorData.updated).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
@@ -2965,31 +2982,36 @@ function renderCompetitorCard(){
     return;
   }
 
-  // Sorter: dyrest-hos-dig-relativt-til-konkurrent først (størst risiko/mulighed)
+  // Sorter: dyrest-hos-dig-relativt-til-konkurrent (pr. stk) først (størst risiko/mulighed)
   rows.sort((a,b)=>{
-    const da=(a.mine!=null)?(a.mine-a.cheapest.price):-1e9;
-    const db=(b.mine!=null)?(b.mine-b.cheapest.price):-1e9;
+    const da=(a.mineUnit!=null)?(a.mineUnit-a.cheapest.unitPrice):-1e9;
+    const db=(b.mineUnit!=null)?(b.mineUnit-b.cheapest.unitPrice):-1e9;
     return db-da;
   });
 
+  const r0=n=>Math.round(n).toLocaleString('da-DK'); // heltals-kr pr. stk
+
   const body=rows.map(r=>{
     const c=r.cheapest;
+    const cUnit=c.unitPrice;
     let mineHtml='<span style="color:var(--ink-3)">—</span>';
     let deltaHtml='';
-    if(r.mine!=null){
-      const diff=r.mine-c.price;
+    if(r.mineUnit!=null){
+      const diff=r.mineUnit-cUnit;
       const cheaper=diff<=0;
-      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>`;
-      deltaHtml=`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cheaper?'var(--green)':'var(--red)'}">${cheaper?'':'+'}${diff.toLocaleString('da-DK')} kr. ${cheaper?'✓ billigst':'▲ dyrere'}</span>`;
+      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r0(r.mineUnit)} kr.${r.itemQty>1?'/stk':''}</span>`;
+      deltaHtml=`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cheaper?'var(--green)':'var(--red)'}">${cheaper?'':'+'}${r0(diff)} kr./stk ${cheaper?'✓ billigst':'▲ dyrere'}</span>`;
     }
     const others=r.count>1?` <span style="font-size:10px;color:var(--ink-3)">+${r.count-1} flere</span>`:'';
     const cUrl=c.url?`href="${esc(c.url)}" target="_blank" rel="noopener"`:'';
+    // Vis pr.-stk pris; hvis sæt, vis pakke-konteksten under
+    const packNote=c.qty>1?`<div style="font-size:10px;color:var(--ink-3)">sæt á ${c.qty} = ${c.price.toLocaleString('da-DK')} kr.</div>`:'';
     return `<tr style="border-top:1px solid var(--line)">
       <td style="padding:7px 8px;font-size:12px">${esc(r.item.name)}</td>
-      <td style="padding:7px 8px;text-align:right">${mineHtml}</td>
-      <td style="padding:7px 8px;text-align:right"><a ${cUrl} style="font-family:'IBM Plex Mono',monospace;color:var(--ink)">${c.price.toLocaleString('da-DK')} kr.</a>${c.outofstock?' <span style="font-size:10px;color:var(--red)">(udsolgt)</span>':''}</td>
-      <td style="padding:7px 8px;font-size:11px;color:var(--ink-3)">${esc(c.compName)}${others}</td>
-      <td style="padding:7px 8px;text-align:right">${deltaHtml}</td>
+      <td style="padding:7px 8px;text-align:right;vertical-align:top">${mineHtml}</td>
+      <td style="padding:7px 8px;text-align:right;vertical-align:top"><a ${cUrl} style="font-family:'IBM Plex Mono',monospace;color:var(--ink)">${r0(cUnit)} kr.${c.qty>1?'/stk':''}</a>${c.outofstock?' <span style="font-size:10px;color:var(--red)">(udsolgt)</span>':''}${packNote}</td>
+      <td style="padding:7px 8px;font-size:11px;color:var(--ink-3);vertical-align:top">${esc(c.compName)}${others}</td>
+      <td style="padding:7px 8px;text-align:right;vertical-align:top">${deltaHtml}</td>
     </tr>`;
   }).join('');
 
@@ -2997,10 +3019,10 @@ function renderCompetitorCard(){
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3)">
         <th style="text-align:left;padding:0 8px 6px">Vare</th>
-        <th style="text-align:right;padding:0 8px 6px">Din pris</th>
-        <th style="text-align:right;padding:0 8px 6px">Billigst hos konkurrent</th>
+        <th style="text-align:right;padding:0 8px 6px">Din pris/stk</th>
+        <th style="text-align:right;padding:0 8px 6px">Billigst konkurrent/stk</th>
         <th style="text-align:left;padding:0 8px 6px">Hvem</th>
-        <th style="text-align:right;padding:0 8px 6px">Forskel</th>
+        <th style="text-align:right;padding:0 8px 6px">Forskel/stk</th>
       </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
