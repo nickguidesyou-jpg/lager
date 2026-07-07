@@ -2609,6 +2609,7 @@ async function loadSesuPrices(forceRefresh) {
       if(statusEl) statusEl.textContent = '✓ ' + Object.keys(sesuPrices).length + ' priser';
       renderItems();
       checkSesuPriceChanges();
+      renderCompetitorCard(); // opdater "Din pris"-fallback (sesu.dk) hvis konkurrentkortet er indlæst
     } else {
       if(statusEl) statusEl.textContent = '— fejl';
       _sesuPricesPromise = null; // allow retry
@@ -2668,6 +2669,26 @@ function productCategory(n){
   return 'other';
 }
 
+// Manuel kobling af drilske varer til deres sesu-produkt — bruges FØR navnematching.
+// Alle tokens skal findes i varenavnet (normName-tokens, så '71cm' er ét token).
+// Findes den pinnede sku ikke i scrapet (delvist scrape), returneres 'missing' i stedet
+// for at falde tilbage til navnematching — det var dét der gav falske udsolgt-markeringer.
+const SESU_PINS = [
+  { tokens:['trapez','messing','71cm'],      sku:'12047' }, // https://sesu.dk/messing-skraa-trapez-71cm/
+  { tokens:['v','hairpin','messing','71cm'], sku:'12645' }  // https://sesu.dk/messing-v-hairpin-bordben-71cm-mat/
+];
+
+function sesuPinnedFor(itemName){
+  const toks=new Set(normName(itemName||'').split(' ').filter(Boolean));
+  for(const pin of SESU_PINS){
+    if(pin.tokens.every(t=>toks.has(t))){
+      const p=sesuProducts.find(x=>String(x.sku)===pin.sku);
+      return p ? { ...p, pinned:true } : { pinned:true, missing:true, sku:pin.sku };
+    }
+  }
+  return null;
+}
+
 function findSesuPrice(itemName, itemSku, itemImageUrl){
   const nn = normName(itemName);
   // 1) exact SKU match — always trusted, no color check needed
@@ -2675,6 +2696,12 @@ function findSesuPrice(itemName, itemSku, itemImageUrl){
   if(sku && sesuPrices[sku] !== undefined){
     const img = itemImageUrl || sesuImages[sku] || '';
     return { price: sesuPrices[sku], url: sesuUrls[sku]||'', image: img, how:'sku' };
+  }
+  // 1b) manuel pin — slår navnematching, og blokerer den hvis produktet mangler i scrapet
+  const pin = sesuPinnedFor(itemName);
+  if(pin){
+    if(pin.missing) return itemImageUrl ? { price:null, url:'', image:itemImageUrl, how:'custom' } : null;
+    return { price: pin.price, url: pin.url||'', image: itemImageUrl||pin.image||'', sesuName: pin.name, how:'pinned' };
   }
   // 2) name-based match via word overlap (Jaccard ≥ 0.28)
   if(!nn) return null;
@@ -2876,8 +2903,14 @@ function renderCompetitorCard(){
   items.forEach(it=>{
     const m=findCompetitorMatches(it);
     if(!m.length) return;
-    const mine=parseFloat(it.sale_price)||null;
-    rows.push({ item:it, mine, cheapest:m[0], count:m.length, all:m });
+    // Din pris: egen salgspris hvis sat, ellers fald tilbage på din sesu.dk-pris (din faktiske markedspris)
+    let mine=parseFloat(it.sale_price)||null;
+    let mineSrc='egen';
+    if(mine==null && sesuPricesLoaded){
+      const sp=findSesuPrice(it.name, it.sku);
+      if(sp && sp.price!=null){ mine=sp.price; mineSrc='sesu'; }
+    }
+    rows.push({ item:it, mine, mineSrc, cheapest:m[0], count:m.length, all:m });
   });
 
   const updated=competitorData?.updated ? new Date(competitorData.updated).toLocaleString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
@@ -2933,7 +2966,8 @@ function renderCompetitorCard(){
     if(r.mine!=null){
       const diff=r.mine-c.price;
       const cheaper=diff<=0;
-      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>`;
+      const srcHint=r.mineSrc==='sesu'?` <span style="font-size:9px;color:var(--ink-3)" title="Din sesu.dk-pris (ingen egen salgspris sat)">sesu</span>`:'';
+      mineHtml=`<span style="font-family:'IBM Plex Mono',monospace">${r.mine.toLocaleString('da-DK')} kr.</span>${srcHint}`;
       deltaHtml=`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cheaper?'var(--green)':'var(--red)'}">${cheaper?'':'+'}${diff.toLocaleString('da-DK')} kr. ${cheaper?'✓ billigst':'▲ dyrere'}</span>`;
     }
     const others=r.count>1?` <span style="font-size:10px;color:var(--ink-3)">+${r.count-1} flere</span>`:'';
@@ -4643,6 +4677,10 @@ async function generatePartnerReport() {
       const p = sesuProducts.find(p => p.sku === sku);
       return { found: true, outofstock: p?.outofstock||false, price: sesuPrices[sku] };
     }
+    // Manuel pin: slår navnematching — og mangler produktet i scrapet vises varen
+    // som "ikke til salg" i stedet for at matche en forkert (udsolgt) variant
+    const pin = sesuPinnedFor(item.name);
+    if(pin) return pin.missing ? { found: false } : { found: true, outofstock: !!pin.outofstock, price: pin.price };
     const nn = normName(item.name);
     if(!nn) return { found: false };
     const itemCat = productCategory(item.name);
