@@ -3991,14 +3991,14 @@ let shipSearchTimer = null;
 let availableProducts = [];
 let availablePrinters = [];
 
-// Pre-filled sender info from Shipmondo account (Khaki ApS)
+// Pre-filled sender info from Shipmondo account (Khaki ApS / SESU)
 const SENDER_INFO = {
   name:    'Khaki ApS',
   address: 'Næsbyvej 6',
   zip:     '4200',
   city:    'Slagelse',
-  email:   'vio@hellokhaki.dk',
-  phone:   '4243925633'
+  email:   'info@sesu.dk',
+  phone:   '2222361'
 };
 
 function shipSearchDebounce(){
@@ -4413,7 +4413,7 @@ async function openNewShipmentModal(){
       <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
       <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Modtager</div>
       <div class="form-row">
-        <div class="fg"><label>Navn</label><input id="sh-rname" placeholder="Modtagers navn"></div>
+        <div class="fg"><label>Navn</label><input id="sh-rname" placeholder="Modtagers navn" list="sh-customer-list" onchange="fillShipmentFromCustomer()"><datalist id="sh-customer-list"></datalist></div>
         <div class="fg"><label>Telefon</label><input id="sh-rphone" placeholder="+4512345678"></div>
       </div>
       <div class="fg"><label>Adresse</label><input id="sh-raddr" placeholder="Vejnavn og nummer"></div>
@@ -4458,6 +4458,38 @@ async function openNewShipmentModal(){
     </div>`;
   openModal();
   setTimeout(updateShipmentPrice, 50);
+  populateShipCustomerList(); // kundeforslag fra salgsordre-kartoteket (henter SO i baggrunden ved behov)
+}
+
+// Kundeforslag i "Ny forsendelse": tidligere kunder fra salgsordrerne foreslås på modtagernavn,
+// og valg udfylder tomme adresse-/kontaktfelter fra kundens seneste ordre med stamdata
+function populateShipCustomerList(){
+  const fill=()=>{
+    const dl=document.getElementById('sh-customer-list');
+    if(!dl) return; // modalen er lukket igen
+    const seen=new Set();
+    dl.innerHTML=[...allSO].reverse()
+      .filter(s=>{ const k=(s.customer||'').trim().toLowerCase(); if(!k||seen.has(k)) return false; seen.add(k); return true; })
+      .map(s=>`<option value="${esc(s.customer.trim())}">`).join('');
+  };
+  if(_soLoaded) fill();
+  else loadSO().then(fill).catch(()=>{});
+}
+
+function fillShipmentFromCustomer(){
+  const name=(document.getElementById('sh-rname')?.value||'').trim().toLowerCase();
+  if(!name) return;
+  const prev=[...allSO].reverse().find(s=>(s.customer||'').trim().toLowerCase()===name&&(s.address||s.email||s.phone))
+           ||[...allSO].reverse().find(s=>(s.customer||'').trim().toLowerCase()===name);
+  if(!prev) return;
+  const fillIfEmpty=(id,val)=>{ const el=document.getElementById(id); if(el&&!el.value.trim()&&val) el.value=val; };
+  fillIfEmpty('sh-raddr', prev.address);
+  fillIfEmpty('sh-rzip',  prev.zip);
+  fillIfEmpty('sh-rcity', prev.city);
+  fillIfEmpty('sh-remail',prev.email);
+  fillIfEmpty('sh-rphone',prev.phone);
+  if(prev.address||prev.email||prev.phone) toast('Modtagerdata udfyldt fra '+prev.id);
+  else toast('Kunden er kendt, men har ingen gemt adresse — udfyld manuelt');
 }
 
 async function aiParseShipment() {
