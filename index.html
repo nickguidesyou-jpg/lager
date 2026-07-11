@@ -2046,7 +2046,7 @@ body.compact .low-row { padding: 8px 16px; }
       <div><label style="font-size:12px;font-weight:600;color:var(--ink-2);display:block;margin-bottom:4px">Leveringsadresse</label>
         <input id="so-address" type="text" placeholder="Vejnavn og nummer" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;margin-bottom:8px">
         <div style="display:grid;grid-template-columns:100px 1fr 1fr;gap:8px">
-          <input id="so-zip" type="text" placeholder="Postnr." style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+          <input id="so-zip" type="text" placeholder="Postnr." oninput="autofillCity('so-zip','so-city')" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
           <input id="so-city" type="text" placeholder="By" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
           <input id="so-phone" type="tel" placeholder="Telefon" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
         </div>
@@ -4414,7 +4414,7 @@ async function openNewShipmentModal(){
       </div>
       <div class="fg"><label>Adresse</label><input id="sh-saddr" value="${SENDER_INFO.address}"></div>
       <div class="form-row">
-        <div class="fg"><label>Postnr.</label><input id="sh-szip" value="${SENDER_INFO.zip}"></div>
+        <div class="fg"><label>Postnr.</label><input id="sh-szip" value="${SENDER_INFO.zip}" oninput="autofillCity('sh-szip','sh-scity')"></div>
         <div class="fg"><label>By</label><input id="sh-scity" value="${SENDER_INFO.city}"></div>
       </div>
       <div class="fg"><label>Email</label><input id="sh-semail" type="email" value="${SENDER_INFO.email}"></div>
@@ -4427,7 +4427,7 @@ async function openNewShipmentModal(){
       </div>
       <div class="fg"><label>Adresse</label><input id="sh-raddr" placeholder="Vejnavn og nummer"></div>
       <div class="form-row">
-        <div class="fg"><label>Postnr.</label><input id="sh-rzip" placeholder="2100"></div>
+        <div class="fg"><label>Postnr.</label><input id="sh-rzip" placeholder="2100" oninput="autofillCity('sh-rzip','sh-rcity')"></div>
         <div class="fg"><label>By</label><input id="sh-rcity" placeholder="København Ø"></div>
       </div>
       <div class="form-row">
@@ -4469,6 +4469,40 @@ async function openNewShipmentModal(){
   openModal();
   setTimeout(updateShipmentPrice, 50);
   populateShipCustomerList(); // kundeforslag fra salgsordre-kartoteket (henter SO i baggrunden ved behov)
+}
+
+// ── POSTNR → BY (DAWA — offentligt dansk adresse-API, cache i localStorage) ──
+let _zipCache={}; try{ _zipCache=JSON.parse(localStorage.getItem('lager_zip_cache')||'{}'); }catch(e){}
+
+async function cityForZip(zip){
+  zip=String(zip||'').trim();
+  if(!/^\d{4}$/.test(zip)) return null;
+  if(_zipCache[zip]) return _zipCache[zip];
+  try{
+    const r=await fetch('https://api.dataforsyningen.dk/postnumre/'+zip);
+    if(!r.ok) return null;
+    const d=await r.json();
+    if(d?.navn){
+      _zipCache[zip]=d.navn;
+      try{ localStorage.setItem('lager_zip_cache',JSON.stringify(_zipCache)); }catch(e){}
+      return d.navn;
+    }
+  }catch(e){}
+  return null;
+}
+
+// Udfyld by-feltet når 4 cifre er tastet. Overskriver kun tomme felter
+// eller felter vi selv har auto-udfyldt (så manuel indtastning aldrig røres).
+async function autofillCity(zipId, cityId){
+  const zipEl=document.getElementById(zipId), cityEl=document.getElementById(cityId);
+  if(!zipEl||!cityEl) return;
+  if(!/^\d{4}$/.test(zipEl.value.trim())) return;
+  const city=await cityForZip(zipEl.value);
+  if(!city) return;
+  if(!cityEl.value.trim() || cityEl.dataset.autofilled==='1'){
+    cityEl.value=city;
+    cityEl.dataset.autofilled='1';
+  }
 }
 
 // Kundeforslag i "Ny forsendelse": tidligere kunder fra salgsordrerne foreslås på modtagernavn,

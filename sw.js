@@ -13,7 +13,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   // Netværkskald til Apps Script og eksterne API'er bypasses altid
-  if (e.request.url.includes('script.google') || e.request.url.includes('upcitemdb') || e.request.url.includes('qrserver')) return;
+  if (e.request.url.includes('script.google') || e.request.url.includes('upcitemdb') || e.request.url.includes('qrserver') || e.request.url.includes('dataforsyningen')) return;
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match('/lager/')))
   );
