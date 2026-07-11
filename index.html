@@ -3998,7 +3998,7 @@ const SENDER_INFO = {
   zip:     '4200',
   city:    'Slagelse',
   email:   'info@sesu.dk',
-  phone:   '2222361'
+  phone:   '22223621'
 };
 
 function shipSearchDebounce(){
@@ -4375,7 +4375,16 @@ async function openNewShipmentModal(){
       productOpts += '</optgroup>';
     });
   } else {
-    productOpts = '<option value="GLSDK_SD">GLS ShopDelivery</option><option value="GLSDK_BP">GLS BusinessParcel</option><option value="DAO_STH">dao daoHOME</option><option value="PDK_MC">PostNord Service Point</option>';
+    // Fallback når Shipmondos produkt-API fejler — data-carrier/data-pname SKAL med,
+    // ellers kan updateShipmentPrice ikke matche fragtpriser og alt viser "—"
+    productOpts = [
+      ['GLSDK_SD','GLS','ShopDelivery'],
+      ['GLSDK_BP','GLS','BusinessParcel'],
+      ['GLSDK_HD','GLS','PrivateDelivery'],
+      ['DAO_STH','dao','daoHOME'],
+      ['PDK_MC','PostNord','Service Point'],
+      ['PDK_PH','PostNord','Home']
+    ].map(([code,car,name])=>`<option value="${code}" data-carrier="${car}" data-pname="${name}">${car} ${name}</option>`).join('');
   }
 
 
@@ -4432,6 +4441,7 @@ async function openNewShipmentModal(){
         <div class="fg"><label>Produkt</label><select id="sh-product" onchange="updateShipmentPrice()">${productOpts}</select></div>
         <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1" oninput="updateShipmentPrice()"></div>
       </div>
+      ${dkProducts.length?'':'<div style="font-size:11px;color:var(--amber);margin:-4px 0 8px">⚠ Kunne ikke hente Shipmondos produktliste — viser standardprodukter. Prøv at lukke og åbne modalen igen for fuld liste.</div>'}
       <div class="form-row">
         <div class="fg"><label>Reference</label><input id="sh-ref" placeholder="Ordre nr."></div>
         <div class="fg"><label>Label format</label><select id="sh-fmt"><option value="a4_pdf">A4 PDF</option><option value="10x19_pdf">10×19 PDF</option><option value="zpl">ZPL (label printer)</option></select></div>
@@ -5511,7 +5521,7 @@ function updateShipmentPrice(){
   const rows = [];
   opts.forEach(o => {
     if(!o.value) return; // skip optgroup-placeholder
-    const carrier = o.dataset.carrier || '';
+    const carrier = o.dataset.carrier || o.text || ''; // uden dataset: match carrier i hele teksten ("GLS ShopDelivery" indeholder "gls")
     const label   = o.dataset.pname || o.text || '';
     const sp = matchStaticPrice(carrier, label);
     const price = sp ? getStaticPrice(sp, w) : null;
