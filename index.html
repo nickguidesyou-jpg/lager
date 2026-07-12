@@ -4644,7 +4644,21 @@ function parseShipmentLocal(text){
         out.address=cand;
         if(!out.name && zi>1){
           const nc=lines[zi-2];
-          if(nc && !/\d/.test(nc) && !nc.includes('@') && !/[:;]/.test(nc) && nc.split(/\s+/).length>=2 && nc.length<50) out.name=nc;
+          if(nc && !/\d/.test(nc) && !nc.includes('@') && !/[:;]/.test(nc) && nc.split(/\s+/).length>=2 && nc.length<50){
+            out.name=nc;
+            // Nogle webshops splitter navnet over to linjer med EFTERNAVNET øverst
+            // ("Høst" / "Jakob Hauge Reitz" → "Jakob Hauge Reitz Høst"). Kræver at linjen
+            // over efternavnet er en sektionsoverskrift eller blokkens start — ellers røres intet.
+            const HEADER=/oplysninger|adresse|levering|fakturering|ordre|kvittering|e-?mail|telefon/i;
+            const ec=zi>2?lines[zi-3]:'';
+            const above=zi>3?lines[zi-4]:null;
+            if(ec && !/\d/.test(ec) && !ec.includes('@') && !/[:;,]/.test(ec) && ec.length<30
+               && ec.split(/\s+/).length<=2 && !HEADER.test(ec)
+               && !/^(hej|hejsa|kære|tak|hilsen|mvh)$/i.test(ec)
+               && (!above || HEADER.test(above))){
+              out.name=nc+' '+ec;
+            }
+          }
         }
       }
     }
