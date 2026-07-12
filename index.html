@@ -4441,10 +4441,11 @@ async function openNewShipmentModal(){
     </div>
     <div class="modal-body">
       <div style="background:var(--surface-2);border:1px solid var(--border-light);border-radius:8px;padding:12px;margin-bottom:14px">
-        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Indsæt ordremail — AI udfylder automatisk</div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px">Indsæt ordremail — udfyldes automatisk (gratis, lokal genkendelse)</div>
         <textarea id="sh-ai-paste" rows="4" placeholder="Indsæt ordrebekræftelse eller kundemail her…" style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--surface-1);color:var(--ink-1);font-family:inherit"></textarea>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-          <button id="sh-ai-btn" class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="aiParseShipment()">✦ Udfyld med AI</button>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button id="sh-ai-btn" class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="localParseShipment()">✦ Udfyld (gratis)</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="aiParseShipment()" title="Bruger Claude AI — koster få øre pr. kald. Brug den hvis den gratis genkendelse ikke fanger alt.">🤖 Prøv med AI</button>
           <span id="sh-ai-status" style="font-size:12px;color:var(--ink-3)"></span>
         </div>
       </div>
@@ -4585,13 +4586,118 @@ function fillShipmentFromCustomer(){
   else toast('Kunden er kendt, men har ingen gemt adresse — udfyld manuelt');
 }
 
+// Udfyld modtagerfelter fra et parse-resultat (bruges af både gratis lokal parser og AI-fallback)
+function applyShipmentParse(d){
+  const set=(id,val)=>{ const el=document.getElementById(id); if(el&&val) el.value=String(val).trim(); };
+  set('sh-rname',    d.name);
+  set('sh-raddr',    d.address);
+  set('sh-rzip',     d.zip);
+  set('sh-rcity',    d.city);
+  set('sh-rcountry', d.country || 'DK');
+  set('sh-remail',   d.email);
+  set('sh-rphone',   d.phone);
+  set('sh-ref',      d.reference);
+  // Mangler byen men postnr er fundet → slå op (gratis, cached)
+  if(d.zip && !d.city) autofillCity('sh-rzip','sh-rcity');
+}
+
+// GRATIS lokal genkendelse af leveringsoplysninger i danske ordremails — ingen AI-kald.
+// Håndterer: labels (Navn:/Adresse:/Tlf:), signaturblokke (navn/vej/postnr på egne linjer),
+// enkeltlinje-adresser ("Jakobsvej 7, 2100 København Ø"), +45-numre og ordre-referencer.
+function parseShipmentLocal(text){
+  const out={ name:'', address:'', zip:'', city:'', email:'', phone:'', reference:'' };
+  const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const lbl=re=>{ const m=text.match(re); return m?m[1].trim().replace(/[,;]+$/,''):''; };
+
+  // 1) Eksplicitte labels (webshop-bekræftelser)
+  out.name     = lbl(/(?:^|\n)\s*(?:navn|name|modtager|kunde)\s*[:.]\s*([^\n]+)/i);
+  out.address  = lbl(/(?:^|\n)\s*(?:leveringsadresse|adresse|address)\s*[:.]\s*([^\n]+)/i);
+  out.phone    = lbl(/(?:^|\n)\s*(?:tlf|telefon|phone|mobil)\s*[.:]?\s*([+\d][\d\s.\-]{6,})/i);
+  out.reference= lbl(/(?:ordre(?:nr|nummer)?|order|faktura(?:nr)?|ref(?:erence)?)\s*[:.#]?\s*(#?(?=[A-Za-z0-9\-]*\d)[A-Za-z0-9\-]{3,})/i); // kræv mindst ét ciffer — ellers fanges ord som "modtaget"
+
+  // 2) Email
+  const em=text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/);
+  if(em) out.email=em[0];
+
+  // 3) Telefon uden label: 8 cifre, evt. +45 og separatorer (postnr er kun 4 cifre og fanges ikke)
+  if(!out.phone){
+    const pm=text.match(/(?:\+45[\s.\-]?)?(\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2})(?!\d)/);
+    if(pm) out.phone=pm[1];
+  }
+  out.phone=out.phone.replace(/[\s.\-]/g,'');
+
+  // 4) Postnr + by ("2100 København Ø") — by afsluttes af komma, punktum, linjeskift m.m.
+  const zm=text.match(/\b([1-9]\d{3})\s+([A-ZÆØÅ][A-Za-zæøåÆØÅ.\- ]{1,28}?)(?=\s*(?:[,\n.;:?!)]|$))/m);
+  if(zm){ out.zip=zm[1]; out.city=zm[2].trim(); }
+
+  // 5) Adresse uden label: linje med gadenavn + husnummer (men ikke postnr-linjen, tlf eller email)
+  const isZipLine=l=>/\b[1-9]\d{3}\s+[A-ZÆØÅ]/.test(l);
+  if(!out.address){
+    out.address=lines.find(l=>
+      /^[A-ZÆØÅa-zæøå]/.test(l) && /\s\d{1,4}\s*[A-Za-z]?\.?\s*(?:,|$)/.test(l.split(/,\s*[1-9]\d{3}/)[0]+',')
+      && !isZipLine(l.replace(/,.*/,'')) && !l.includes('@') && !/^(?:tlf|telefon|ordre)/i.test(l)
+      && l.replace(/[^\d]/g,'').length<=6
+    )||'';
+    // Enkeltlinje: "Jakobsvej 7, 2100 København Ø" → tag delen før postnr
+    if(out.address && zm && out.address.includes(zm[1])) out.address=out.address.split(zm[1])[0].replace(/[,\s]+$/,'');
+    // Adresse midt i en sætning ("...send den til Jakobsvej 7, 2100 ..."): tag gadenavn+nr lige før postnr
+    if(!out.address && zm){
+      const zline=lines.find(l=>l.includes(zm[1]+' '));
+      if(zline){
+        const before=zline.split(zm[1])[0].replace(/[,\s]+$/,'');
+        // Alle adresse-ord skal starte med stort (danske gadenavne) — ellers fanges sætningsord med
+        const tail=before.match(/((?:[A-ZÆØÅ][\wæøåÆØÅ.\-]*\s+){1,4}\d{1,4}\s*[A-Za-z]?)$/);
+        if(tail) out.address=tail[1].trim();
+      }
+    }
+  }
+  out.address=out.address.replace(/[,;]+$/,'');
+
+  // 6) Navn uden label: linjen over adressen (2+ ord, ingen tal/@)
+  if(!out.name && out.address){
+    const ai=lines.findIndex(l=>l.startsWith(out.address.slice(0,Math.min(12,out.address.length))));
+    for(let i=ai-1;i>=0&&i>=ai-2;i--){
+      const c=lines[i];
+      if(c && !/\d/.test(c) && !c.includes('@') && !/[:;]/.test(c) && c.split(/\s+/).length>=2 && c.length<50){ out.name=c; break; }
+    }
+  }
+  // 7) Navn fallback: afsluttende hilsen ("Mvh Jakob Jensen")
+  if(!out.name){
+    const g=text.match(/(?:venlig hilsen|hilsen|mvh|vh|kh)[,.\s]+([A-ZÆØÅ][\wæøå]+(?:\s+[A-ZÆØÅ][\wæøå]+)+)/i);
+    if(g) out.name=g[1].trim();
+  }
+  return out;
+}
+
+function localParseShipment(){
+  const text=(document.getElementById('sh-ai-paste').value||'').trim();
+  const status=document.getElementById('sh-ai-status');
+  if(!text){ status.textContent='Indsæt mailtekst først'; return; }
+  const d=parseShipmentLocal(text);
+  applyShipmentParse(d);
+  const found=['name','address','zip','city','email','phone','reference'].filter(k=>d[k]);
+  const missing={name:'navn',address:'adresse',zip:'postnr',city:'by'};
+  const miss=Object.keys(missing).filter(k=>!d[k] && !(k==='city'&&d.zip)); // by dækkes af postnr-opslag
+  if(!found.length){
+    status.style.color='var(--amber)';
+    status.textContent='Kunne ikke genkende felterne — prøv 🤖 AI-knappen';
+  } else if(miss.length){
+    status.style.color='var(--amber)';
+    status.textContent=`✓ ${found.length} felter udfyldt · mangler: ${miss.map(k=>missing[k]).join(', ')} — udfyld manuelt eller prøv 🤖 AI`;
+  } else {
+    status.style.color='var(--green)';
+    status.textContent='✓ Felter udfyldt (gratis) — tjek venligst';
+  }
+}
+
 async function aiParseShipment() {
   const text = (document.getElementById('sh-ai-paste').value || '').trim();
   if (!text) { document.getElementById('sh-ai-status').textContent = 'Indsæt mailtekst først'; return; }
   const btn = document.getElementById('sh-ai-btn');
   const status = document.getElementById('sh-ai-status');
   btn.disabled = true;
-  status.textContent = 'Analyserer…';
+  status.style.color = 'var(--ink-3)';
+  status.textContent = 'Analyserer (AI)…';
   try {
     const res = await jsonpShip({
       action: 'claudeProxy',
@@ -4608,16 +4714,8 @@ async function aiParseShipment() {
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
     if (!json) throw new Error('Uventet svar fra AI: ' + raw.slice(0,100));
     const d = JSON.parse(json);
-    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
-    set('sh-rname',    d.name);
-    set('sh-raddr',    d.address);
-    set('sh-rzip',     d.zip);
-    set('sh-rcity',    d.city);
-    set('sh-rcountry', d.country || 'DK');
-    set('sh-remail',   d.email);
-    set('sh-rphone',   d.phone);
-    set('sh-ref',      d.reference);
-    status.textContent = '✓ Felter udfyldt — tjek venligst';
+    applyShipmentParse(d);
+    status.textContent = '✓ Felter udfyldt (AI) — tjek venligst';
     status.style.color = 'var(--green)';
   } catch(e) {
     status.textContent = 'Fejl: ' + (e.message || JSON.stringify(e));
