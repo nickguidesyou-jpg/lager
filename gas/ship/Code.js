@@ -75,14 +75,15 @@ function doGet(e) {
     else if (action === 'getPrinters')     result = getPrinters();
     else if (action === 'getPickupPoints') result = getPickupPoints(p);
     else if (action === 'getLabel')        result = getLabel(p.id);
-    else if (action === 'createShipment')  result = createShipment(p);
+    // createShipment (koster penge, irreversibel) og sendReorderEmail (sender mail) er
+    // bevidst KUN tilgængelige via POST — aldrig GET, hvor parametre havner i logs/historik/Referer.
     else if (action === 'getBalance')      result = getBalance();
     else if (action === 'getMonthlyStats')   result = getMonthlyStats();
     else if (action === 'getMonthlyHistory') result = getMonthlyHistory();
-    else if (action === 'sendReorderEmail')  result = sendReorderEmail(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
-    result = { error: err.message };
+    Logger.log('doGet fejl (' + (p && p.action) + '): ' + (err && err.stack || err));
+    result = { error: 'Der opstod en serverfejl' };
   }
   var json = JSON.stringify(result);
   if (cb) {
@@ -110,13 +111,20 @@ function doPost(e) {
     } else if (action === 'disableTOTP') {
       result = disableTOTP(p);
     } else if (action === 'serverLogout') {
-      // Ugyldiggør token øjeblikkeligt — ingen auth krævet (token kan allerede være væk)
+      // Kræver korrekt token (uanset udløb) — ellers kunne enhver anonymt tvangs-udlogge
+      // ejeren og nulstille alle betroede enheder = trivielt DoS. En udløbet session er
+      // allerede død, så et gyldigt token er tilstrækkeligt til at rydde device-trust.
       var props = getProps();
-      props.setProperty('TOKEN_EXPIRY', '1');
-      props.deleteProperty('DEVICE_TRUST_SECRET');
-      props.deleteProperty('DEVICE_TRUST_EXPIRES');
-      props.deleteProperty('DEVICE_TRUST_LIST');
-      result = { ok: true };
+      var expected = props.getProperty('LAGER_TOKEN');
+      if (!expected || p.token !== expected) {
+        result = { error: 'Ikke autoriseret' };
+      } else {
+        props.setProperty('TOKEN_EXPIRY', '1');
+        props.deleteProperty('DEVICE_TRUST_SECRET');
+        props.deleteProperty('DEVICE_TRUST_EXPIRES');
+        props.deleteProperty('DEVICE_TRUST_LIST');
+        result = { ok: true };
+      }
     } else if (action === 'verifyDeviceTrust') {
       result = verifyDeviceTrust(p);
     } else if (action === 'setAnthropicKey') {
@@ -146,15 +154,25 @@ function doPost(e) {
     else if (action === 'claudeProxy')           result = claudeProxy(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
-    result = { error: err.message };
+    Logger.log('doPost fejl (' + (p && p.action) + '): ' + (err && err.stack || err));
+    result = { error: 'Der opstod en serverfejl' };
   }
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+var CLAUDE_DAILY_LIMIT = 200; // maks. AI-kald pr. dag — beskytter ejerens Anthropic-konto mod misbrug via proxy
+
 function claudeProxy(data) {
-  var key = getProps().getProperty('ANTHROPIC_KEY');
+  var props = getProps();
+  var key = props.getProperty('ANTHROPIC_KEY');
   if (!key) return { error: 'ANTHROPIC_KEY ikke sat i Script Properties' };
+  // Daglig kvote — en kompromitteret session kan ellers køre ubegrænsede kald på ejerens regning
+  var today = Utilities.formatDate(new Date(), 'Etc/GMT', 'yyyy-MM-dd');
+  var qKey  = 'CLAUDE_CALLS_' + today;
+  var used  = parseInt(props.getProperty(qKey) || '0', 10);
+  if (used >= CLAUDE_DAILY_LIMIT) return { error: 'Daglig AI-kvote nået (' + CLAUDE_DAILY_LIMIT + ' kald) — prøv igen i morgen' };
+  props.setProperty(qKey, String(used + 1));
   var body = {
     model: data.model || 'claude-sonnet-4-6',
     max_tokens: Math.min(parseInt(data.max_tokens) || 2000, 4000),

@@ -132,8 +132,14 @@ Outofstock-detektion: CSS-klasse på listingside + JSON-LD availability + second
 
 ## Rapport-adgangskode
 
-Partner-rapport adgangskode: `dpt68uwe!`
-SHA-256 hash (hardcodet i index.html, ingen klartekst i source): `88423afe4fea6e2f0567bfc1a41cb61850d87015692590a621f6645d3a739a39`
+Adgangskoden opbevares **ikke** i klartekst i repoet. Den tidligere klartekst-kode lå her og
+skal derfor betragtes som kompromitteret — **rotér den** (vælg ny kode, opdater SHA-256-hashen i
+index.html, og fjern den gamle klartekst fra git-historikken med `git filter-repo`).
+SHA-256 hash af den nuværende kode (hardcodet i index.html): `88423afe4fea6e2f0567bfc1a41cb61850d87015692590a621f6645d3a739a39`
+
+> Bemærk: rapport-gaten er klientside-only (alle data ligger i det genererede dokument). En kode
+> beskytter kun mod tilfældige kig, ikke mod nogen der åbner kildekoden. Del aldrig rapporten med
+> nogen der ikke må se alle tal.
 
 ---
 

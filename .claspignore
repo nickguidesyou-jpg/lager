@@ -4,4 +4,5 @@ clasp-login.command
 README.md
 sw.js
 manifest.json
+vendor/**
 .git/**
