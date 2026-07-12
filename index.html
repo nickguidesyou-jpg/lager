@@ -4630,8 +4630,27 @@ function parseShipmentLocal(text){
   const zm=text.match(/\b([1-9]\d{3})\s+([A-ZÆØÅ][A-Za-zæøåÆØÅ.\- ]{1,28}?)(?=\s*(?:[,\n.;:?!)]|$))/m);
   if(zm){ out.zip=zm[1]; out.city=zm[2].trim(); }
 
-  // 5) Adresse uden label: linje med gadenavn + husnummer (men ikke postnr-linjen, tlf eller email)
-  const isZipLine=l=>/\b[1-9]\d{3}\s+[A-ZÆØÅ]/.test(l);
+  // 5a) Blokformat (webshop-ordrer): adressen står på linjen LIGE OVER postnr-linjen.
+  // Fanger også etage/side-suffikser som "Badstuegade 8 2.sal" / "Vej 3, st. tv" som
+  // gadenavn+husnr-mønstret ikke kan. Navnet står typisk på linjen over adressen.
+  const isZipLine=l=>/^[1-9]\d{3}\s+[A-ZÆØÅ]/.test(l);
+  if(!out.address){
+    const zi=lines.findIndex(isZipLine);
+    if(zi>0){
+      const cand=lines[zi-1];
+      if(cand && /\d/.test(cand) && !cand.includes('@') && !isZipLine(cand)
+         && !/^\s*(?:tlf|telefon|e-?mail|mobil|ordre|faktura)/i.test(cand)
+         && cand.replace(/[^\d]/g,'').length<=8 && cand.length<60){
+        out.address=cand;
+        if(!out.name && zi>1){
+          const nc=lines[zi-2];
+          if(nc && !/\d/.test(nc) && !nc.includes('@') && !/[:;]/.test(nc) && nc.split(/\s+/).length>=2 && nc.length<50) out.name=nc;
+        }
+      }
+    }
+  }
+
+  // 5b) Adresse uden label: linje med gadenavn + husnummer (men ikke postnr-linjen, tlf eller email)
   if(!out.address){
     out.address=lines.find(l=>
       /^[A-ZÆØÅa-zæøå]/.test(l) && /\s\d{1,4}\s*[A-Za-z]?\.?\s*(?:,|$)/.test(l.split(/,\s*[1-9]\d{3}/)[0]+',')
