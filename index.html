@@ -2083,6 +2083,22 @@ body.compact .low-row { padding: 8px 16px; }
   </div>
 </div>
 
+<!-- LABEL-OVERLAY (print uden faneskift) -->
+<div id="label-overlay" onclick="if(event.target===this)closeLabelOverlay()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9700;align-items:center;justify-content:center">
+  <div style="width:min(600px,94vw);height:min(82vh,780px);background:var(--white);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.35)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)">
+      <div id="label-overlay-title" style="font-weight:600;font-size:14px">Label</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" onclick="printLabelOverlay()">🖨 Print</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadLabelOverlay()" title="Gem PDF">⬇</button>
+        <button class="btn btn-ghost btn-sm" onclick="labelOverlayNewTab()" title="Åbn i ny fane (hvis print driller)">↗</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeLabelOverlay()">✕</button>
+      </div>
+    </div>
+    <iframe id="label-frame" title="Label" style="flex:1;border:none;width:100%;background:#333"></iframe>
+  </div>
+</div>
+
 <!-- CMD+K KOMMANDOPALETTE -->
 <div id="cmdk-overlay" onclick="if(event.target===this)closeCmdK()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9500;align-items:flex-start;justify-content:center;padding-top:12vh">
   <div style="width:min(560px,94vw);background:var(--white);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.3);overflow:hidden">
@@ -4288,45 +4304,74 @@ async function printLabel(id){
   openModal();
 }
 
-async function doPrintLabel(id){
-  const fmt = document.getElementById('pl-fmt')?.value || 'a4_pdf';
+async function doPrintLabel(id, fmtOverride){
+  const fmt = fmtOverride || document.getElementById('pl-fmt')?.value || 'a4_pdf';
   closeModal();
-  // Åbn vindue STRAKS mens bruger-gesture er aktiv — Safari blokerer popup hvis vi venter på fetch
-  const win = window.open('', '_blank');
-  if(win) win.document.write('<html><body style="margin:0;background:#111;color:#fff;font:16px/1.5 sans-serif;display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center;opacity:.6">Henter label…</div></body></html>');
   toast('Henter label fra Shipmondo…');
   try {
     const d = await jsonpShip({ action:'getLabel', id, format: fmt });
     if(!d.label_b64){
-      if(win) win.close();
       alert(d.error ? 'Fejl: ' + d.error : 'Ingen label — forsendelsen har muligvis ikke en label endnu'); return;
     }
     const byteChars = atob(d.label_b64);
     const bytes = new Uint8Array(byteChars.length);
     for(let i=0;i<byteChars.length;i++) bytes[i]=byteChars.charCodeAt(i);
-    const blob = new Blob([bytes], {type:'application/pdf'});
-    const blobUrl = URL.createObjectURL(blob);
-    if(win && !win.closed){
-      // Skriv HTML med PDF embedded direkte i vinduet (samme origin = print() virker)
-      const dataUri = 'data:application/pdf;base64,' + d.label_b64;
-      win.document.open();
-      win.document.write('<!DOCTYPE html><html><head><title>Label ' + id + '</title>' +
-        '<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100vw;height:100vh;overflow:hidden;background:#222}' +
-        'embed{width:100%;height:100%;display:block}' +
-        '@media print{body{background:#fff}}' +
-        '</style></head><body>' +
-        '<embed src="' + dataUri + '" type="application/pdf" width="100%" height="100%">' +
-        '</body></html>');
-      win.document.close();
-      toast('Label klar — printer åbner…');
-      setTimeout(() => { try { win.print(); } catch(e) { toast('Tryk ⌘P i label-vinduet for at printe'); } }, 1200);
-    } else {
-      // Vinduet blev blokeret — download i stedet
-      const a = document.createElement('a'); a.href=blobUrl; a.download=`label-${id}.pdf`; document.body.appendChild(a); a.click(); a.remove();
-      toast('Label downloadet — åbn filen og print');
+    if(fmt==='zpl'){
+      // ZPL er rå printertekst — kan ikke forhåndsvises; download til Zebra-print
+      const blob = new Blob([bytes], {type:'text/plain'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download=`label-${id}.zpl`; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 30000);
+      toast('ZPL-label downloadet');
+      return;
     }
-    setTimeout(()=>URL.revokeObjectURL(blobUrl), 120000);
-  } catch(e){ if(win) win.close(); alert('Fejl: '+e.message); }
+    const blob = new Blob([bytes], {type:'application/pdf'});
+    openLabelOverlay(URL.createObjectURL(blob), id);
+  } catch(e){ alert('Fejl: '+e.message); }
+}
+
+// ── LABEL-OVERLAY: forhåndsvis og print uden at skifte fane ──
+function openLabelOverlay(blobUrl, id){
+  window._labelBlobUrl = blobUrl;
+  window._labelId = id;
+  document.getElementById('label-overlay-title').textContent = 'Label — ' + id;
+  const frame = document.getElementById('label-frame');
+  frame.onload = () => setTimeout(printLabelOverlay, 500); // auto-åbn printdialogen når PDF'en er klar
+  frame.src = blobUrl;
+  document.getElementById('label-overlay').style.display = 'flex';
+}
+
+function printLabelOverlay(){
+  const frame = document.getElementById('label-frame');
+  try {
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  } catch(e) {
+    toast('Direkte print blokeret af browseren — brug ⬇ eller ↗');
+  }
+}
+
+function downloadLabelOverlay(){
+  if(!window._labelBlobUrl) return;
+  const a = document.createElement('a');
+  a.href = window._labelBlobUrl; a.download = `label-${window._labelId||'shipmondo'}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function labelOverlayNewTab(){
+  if(window._labelBlobUrl) window.open(window._labelBlobUrl, '_blank');
+}
+
+function closeLabelOverlay(){
+  document.getElementById('label-overlay').style.display = 'none';
+  const frame = document.getElementById('label-frame');
+  frame.onload = null;
+  frame.src = 'about:blank';
+  if(window._labelBlobUrl){
+    const url = window._labelBlobUrl;
+    window._labelBlobUrl = null;
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }
 }
 
 async function openNewShipmentModal(){
@@ -4649,11 +4694,8 @@ async function submitShipment(){
     }
     toast(count>1?`${created.length} forsendelser oprettet ✓`:'Forsendelse oprettet ✓');
     if(count===1){
-      const labelUrl = created[0]?.labelUrl;
-      if(labelUrl) setTimeout(()=>{
-        const win = window.open(labelUrl,'_blank');
-        if(win) setTimeout(()=>{ try{win.print();}catch(e){} }, 1500);
-      }, 500);
+      // Label vises i in-page overlay (ingen faneskift) — samme format som valgt i modalen
+      if(created[0]?.id) doPrintLabel(created[0].id, data.label_format).catch(()=>{});
     } else {
       window._lastMultiShip = created;
       showMultiLabelModal();
