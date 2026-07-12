@@ -4446,6 +4446,10 @@ async function openNewShipmentModal(){
         <div class="fg"><label>Reference</label><input id="sh-ref" placeholder="Ordre nr."></div>
         <div class="fg"><label>Label format</label><select id="sh-fmt"><option value="a4_pdf">A4 PDF</option><option value="10x19_pdf">10×19 PDF</option><option value="zpl">ZPL (label printer)</option></select></div>
       </div>
+      <div class="form-row">
+        <div class="fg"><label>Antal pakker (én label pr. pakke)</label><input id="sh-count" type="number" value="1" min="1" max="10" oninput="const n=Math.min(10,Math.max(1,parseInt(this.value)||1));document.getElementById('sh-count-hint').textContent=n>1?'⚠ Opretter '+n+' separate forsendelser til samme modtager — hver med egen label, tracking og fragtpris':''"></div>
+        <div class="fg" style="display:flex;align-items:flex-end"><div id="sh-count-hint" style="font-size:11px;color:var(--amber);padding-bottom:8px"></div></div>
+      </div>
       <div style="display:flex;gap:18px;margin-top:10px;align-items:center">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
           <input type="checkbox" id="sh-notify-email" checked style="width:15px;height:15px;cursor:pointer">
@@ -4614,38 +4618,81 @@ async function submitShipment(){
     toast('Udfyld afsenderens navn, adresse, postnr. og by'); return;
   }
 
-  closeModal();
-  toast('Opretter forsendelse…');
+  // Flere pakker til samme modtager = flere separate forsendelser (én label pr. pakke)
+  const count = Math.min(10, Math.max(1, parseInt(document.getElementById('sh-count')?.value)||1));
+  if(count>1 && !confirm(`Du er ved at oprette ${count} separate forsendelser til ${data.receiver_name} — én label pr. pakke, og hver forsendelse koster fragt. Fortsæt?`)) return;
 
+  closeModal();
+  toast(count>1?`Opretter ${count} forsendelser…`:'Opretter forsendelse…');
+
+  const created = [];
   try {
-    const d = await jsonpShip({...data});
-    if(d.error) throw new Error(d.error);
-    toast('Forsendelse oprettet ✓');
-    // Sæt automatisk til "Under transport" ved oprettelse
-    if(d.id) {
-      const sid = String(d.id);
-      localStorage.setItem('ship_status_'+sid, 'in_transit');
-      if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
-      shipPackageContents[sid].status = 'in_transit';
-      jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: 'in_transit' }).catch(()=>{});
-      // Kobling til salgsordre: pakkeindhold fra ordrelinjer, status → afsendt, lagertræk
-      if(window._shipmentSOId){
-        try{ await linkShipmentToSO(window._shipmentSOId, sid); }catch(e){ toast('Forsendelse oprettet, men ordre-kobling fejlede: '+e.message); }
-        window._shipmentSOId=null;
+    for(let i=0;i<count;i++){
+      const payload = {...data};
+      if(count>1) payload.reference = (data.reference?data.reference+' ':'') + `(${i+1}/${count})`;
+      const d = await jsonpShip({...payload});
+      if(d.error) throw new Error(d.error + (created.length?` — ${created.length} af ${count} blev oprettet inden fejlen`:''));
+      created.push({ id:d.id, labelUrl:d.label_url||d.pdf_uri });
+      // Sæt automatisk til "Under transport" ved oprettelse
+      if(d.id){
+        const sid = String(d.id);
+        localStorage.setItem('ship_status_'+sid, 'in_transit');
+        if(!shipPackageContents[sid]) shipPackageContents[sid] = { items: [], status: '' };
+        shipPackageContents[sid].status = 'in_transit';
+        jsonp({ action:'saveShipmentStatus', shipment_id: sid, status: 'in_transit' }).catch(()=>{});
+        // Kobling til salgsordre (kun første pakke bærer koblingen — lagertræk er guarded)
+        if(i===0 && window._shipmentSOId){
+          try{ await linkShipmentToSO(window._shipmentSOId, sid); }catch(e){ toast('Forsendelse oprettet, men ordre-kobling fejlede: '+e.message); }
+          window._shipmentSOId=null;
+        }
       }
     }
-    const labelUrl = d.label_url || d.pdf_uri;
-    if(labelUrl) setTimeout(()=>{
-      const win = window.open(labelUrl,'_blank');
-      if(win) setTimeout(()=>{ try{win.print();}catch(e){} }, 1500);
-    }, 500);
+    toast(count>1?`${created.length} forsendelser oprettet ✓`:'Forsendelse oprettet ✓');
+    if(count===1){
+      const labelUrl = created[0]?.labelUrl;
+      if(labelUrl) setTimeout(()=>{
+        const win = window.open(labelUrl,'_blank');
+        if(win) setTimeout(()=>{ try{win.print();}catch(e){} }, 1500);
+      }, 500);
+    } else {
+      window._lastMultiShip = created;
+      showMultiLabelModal();
+    }
     shipLoaded = false; // force reload
     await loadShipments();
   } catch(e) {
+    if(created.length){ window._lastMultiShip = created; showMultiLabelModal(); }
     toast('Fejl: '+e.message);
   }
 }
 
+
+// Oversigt over labels efter multi-pakke-oprettelse — print én ad gangen
+// (doPrintLabel lukker modalen, så knapperne genåbner oversigten bagefter)
+function showMultiLabelModal(){
+  const list=window._lastMultiShip||[];
+  if(!list.length) return;
+  window._multiPrinted=window._multiPrinted||new Set();
+  document.getElementById('modal-box').innerHTML=`
+    <div class="modal-head">
+      <div class="modal-title">🖨 Labels — ${list.length} pakker oprettet</div>
+      <button class="modal-close" onclick="window._multiPrinted=new Set();closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:12px">Print én label ad gangen — oversigten åbner igen efter hver.</div>
+      ${list.map((s,i)=>{
+        const printed=window._multiPrinted.has(String(s.id));
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-light);font-size:13px;${printed?'opacity:.5':''}">
+          <span>Pakke ${i+1} af ${list.length} <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3)">· ${esc(String(s.id))}</span>${printed?' <span style="color:var(--green)">✓ printet</span>':''}</span>
+          <button class="btn ${printed?'btn-ghost':'btn-primary'} btn-sm" onclick="window._multiPrinted.add('${esc(String(s.id))}');doPrintLabel(${JSON.stringify(String(s.id))});setTimeout(showMultiLabelModal,800)">🖨 ${printed?'Print igen':'Print label'}</button>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="window._multiPrinted=new Set();closeModal()">Færdig</button>
+    </div>`;
+  openModal();
+}
 
 // ── LAGERVÆRDI ──
 let totalLagervaerdi = 0;
