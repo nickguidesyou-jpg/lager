@@ -4374,8 +4374,77 @@ function closeLabelOverlay(){
   }
 }
 
+// ── UDLEVERINGSSTED (pakkeshop/pakkeboks) ──
+function carrierCodeForProduct(){
+  const code=(document.getElementById('sh-product')?.value||'').toUpperCase();
+  const pfx=code.split('_')[0];
+  return ({ GLSDK:'gls', GLS:'gls', PDK:'pdk', POSTNORD:'pdk', DAO:'dao', DAODK:'dao', BRING:'bring', BRIN:'bring' })[pfx]||'';
+}
+
+function clearPickupSelection(){
+  window._selectedServicePoint=null;
+  window._pickupPoints=null;
+  const sel=document.getElementById('sh-sp-selected');
+  if(sel){ sel.textContent='Nærmeste vælges automatisk'; sel.style.color='var(--ink-3)'; }
+  const list=document.getElementById('sh-sp-list');
+  if(list) list.innerHTML='';
+}
+
+async function loadPickupPoints(){
+  const zip=(document.getElementById('sh-rzip')?.value||'').trim();
+  if(!/^\d{4}$/.test(zip)){ toast('Udfyld modtagerens postnr. først'); return; }
+  const cc=carrierCodeForProduct();
+  if(!cc){ toast('Vælg et GLS/PostNord/dao/Bring-produkt først'); return; }
+  const list=document.getElementById('sh-sp-list');
+  list.innerHTML='<div style="font-size:12px;color:var(--ink-3);padding:6px 0">Henter udleveringssteder…</div>';
+  try{
+    const d=await jsonpShip({ action:'getPickupPoints', carrier_code:cc, zipcode:zip,
+      address:(document.getElementById('sh-raddr')?.value||'').trim(),
+      city:(document.getElementById('sh-rcity')?.value||'').trim(),
+      country_code:(document.getElementById('sh-rcountry')?.value||'DK').trim()||'DK', quantity:9 });
+    if(d.error) throw new Error(d.error);
+    window._pickupPoints=d.points||[];
+    if(!window._pickupPoints.length){ list.innerHTML='<div style="font-size:12px;color:var(--amber);padding:6px 0">Ingen udleveringssteder fundet — tjek postnr. og produkt</div>'; return; }
+    renderPickupPoints();
+  }catch(e){
+    list.innerHTML=`<div style="font-size:12px;color:var(--red);padding:6px 0">Fejl: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderPickupPoints(){
+  const list=document.getElementById('sh-sp-list');
+  const pts=window._pickupPoints||[];
+  if(!list) return;
+  const selId=window._selectedServicePoint?.id;
+  list.innerHTML=`<div style="border:1px solid var(--border-light);border-radius:8px;max-height:220px;overflow-y:auto">
+    <div onclick="selectPickupPoint(-1)" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border-light);font-size:12px;background:${!selId?'var(--accent-dim,var(--surface-2))':'transparent'}">
+      <span style="font-weight:600">Nærmeste (automatisk)</span>${!selId?'<span>✓</span>':''}
+    </div>
+    ${pts.map((p,i)=>`<div onclick="selectPickupPoint(${i})" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border-light);font-size:12px;background:${selId===String(p.id)?'var(--accent-dim,var(--surface-2))':'transparent'}">
+      <span><strong>${esc(p.name||p.company_name||'—')}</strong><br><span style="color:var(--ink-3)">${esc(p.address||'')}, ${esc(String(p.zipcode||''))} ${esc(p.city||'')}</span></span>
+      <span style="white-space:nowrap;color:var(--ink-3)">${p.distance!=null?Math.round(p.distance*10)/10+' km':''}${selId===String(p.id)?' ✓':''}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+function selectPickupPoint(i){
+  const pts=window._pickupPoints||[];
+  if(i<0||!pts[i]){
+    window._selectedServicePoint=null;
+    const sel=document.getElementById('sh-sp-selected');
+    if(sel){ sel.textContent='Nærmeste vælges automatisk'; sel.style.color='var(--ink-3)'; }
+  } else {
+    const p=pts[i];
+    window._selectedServicePoint={ id:String(p.id), name:p.name||p.company_name||'' };
+    const sel=document.getElementById('sh-sp-selected');
+    if(sel){ sel.textContent='✓ '+(p.name||p.company_name)+' · '+(p.address||''); sel.style.color='var(--green)'; }
+  }
+  renderPickupPoints();
+}
+
 async function openNewShipmentModal(){
   window._shipmentSOId=null; // nulstil SO-kobling — createShipmentFromSO sætter den igen efter dette kald
+  window._selectedServicePoint=null; window._pickupPoints=null;
   // Load products if not loaded
   if(!availableProducts.length){
     try {
@@ -4484,7 +4553,7 @@ async function openNewShipmentModal(){
       <div style="height:1px;background:var(--border-light);margin:14px 0"></div>
       <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px">Forsendelse</div>
       <div class="form-row">
-        <div class="fg"><label>Produkt</label><select id="sh-product" onchange="updateShipmentPrice()">${productOpts}</select></div>
+        <div class="fg"><label>Produkt</label><select id="sh-product" onchange="updateShipmentPrice();clearPickupSelection()">${productOpts}</select></div>
         <div class="fg"><label>Vægt (gram)</label><input id="sh-weight" type="number" value="2000" min="1" oninput="updateShipmentPrice()"></div>
       </div>
       ${dkProducts.length?'':'<div style="font-size:11px;color:var(--amber);margin:-4px 0 8px">⚠ Kunne ikke hente Shipmondos produktliste — viser standardprodukter. Prøv at lukke og åbne modalen igen for fuld liste.</div>'}
@@ -4495,6 +4564,14 @@ async function openNewShipmentModal(){
       <div class="form-row">
         <div class="fg"><label>Antal pakker (én label pr. pakke)</label><input id="sh-count" type="number" value="1" min="1" max="10" oninput="const n=Math.min(10,Math.max(1,parseInt(this.value)||1));document.getElementById('sh-count-hint').textContent=n>1?'⚠ Opretter '+n+' separate forsendelser til samme modtager — hver med egen label, tracking og fragtpris':''"></div>
         <div class="fg" style="display:flex;align-items:flex-end"><div id="sh-count-hint" style="font-size:11px;color:var(--amber);padding-bottom:8px"></div></div>
+      </div>
+      <div class="fg">
+        <label>Udleveringssted</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="loadPickupPoints()">📍 Vælg pakkeshop/pakkeboks</button>
+          <span id="sh-sp-selected" style="font-size:12px;color:var(--ink-3)">Nærmeste vælges automatisk</span>
+        </div>
+        <div id="sh-sp-list" style="margin-top:8px"></div>
       </div>
       <div style="display:flex;gap:18px;margin-top:10px;align-items:center">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -4784,7 +4861,8 @@ async function submitShipment(){
     ].filter(Boolean).join(','),
     printer_host:  '',
     printer_name:  '',
-    printer_format:''
+    printer_format:'',
+    service_point_id: window._selectedServicePoint?.id || ''
   };
 
   if(!data.receiver_name||!data.receiver_address||!data.receiver_zip||!data.receiver_city){

@@ -73,6 +73,7 @@ function doGet(e) {
     else if (action === 'getSesuPrices')    result = getSesuPrices(p.forceRefresh);
     else if (action === 'getCompetitorPrices') result = getCompetitorPrices(p.forceRefresh);
     else if (action === 'getPrinters')     result = getPrinters();
+    else if (action === 'getPickupPoints') result = getPickupPoints(p);
     else if (action === 'getLabel')        result = getLabel(p.id);
     else if (action === 'createShipment')  result = createShipment(p);
     else if (action === 'getBalance')      result = getBalance();
@@ -133,6 +134,7 @@ function doPost(e) {
     else if (action === 'getSesuPrices')         result = getSesuPrices(p.forceRefresh);
     else if (action === 'getCompetitorPrices')   result = getCompetitorPrices(p.forceRefresh);
     else if (action === 'getPrinters')           result = getPrinters();
+    else if (action === 'getPickupPoints')       result = getPickupPoints(p);
     else if (action === 'getLabel')              result = getLabel(p.id);
     else if (action === 'debugLabel')            result = debugLabel(p.id);
     else if (action === 'getBalance')            result = getBalance();
@@ -828,6 +830,19 @@ function getPrinters() {
   return shipmondoRequest('GET', 'printers');
 }
 
+// Pakkeshops/pakkebokse nær modtageren — KUN GET
+function getPickupPoints(p) {
+  if (!p.carrier_code || !p.zipcode) return { error: 'carrier_code og zipcode er påkrævet' };
+  var qs = 'carrier_code=' + encodeURIComponent(p.carrier_code) +
+           '&country_code=' + encodeURIComponent(p.country_code || 'DK') +
+           '&zipcode=' + encodeURIComponent(p.zipcode) +
+           '&quantity=' + encodeURIComponent(p.quantity || '9');
+  if (p.address) qs += '&address=' + encodeURIComponent(p.address);
+  if (p.city)    qs += '&city=' + encodeURIComponent(p.city);
+  var data = shipmondoRequest('GET', 'pickup_points?' + qs);
+  return { points: Array.isArray(data) ? data : [] };
+}
+
 function fetchLabelB64(url) {
   var props = getProps();
   var user = props.getProperty('SHIPMONDO_USER');
@@ -924,6 +939,11 @@ function createShipment(p) {
     ],
     parcels: [{ weight: parseInt(p.weight_grams) || 1000 }]
   };
+  // Specifikt udleveringssted valgt af brugeren (ellers vælger Shipmondo nærmeste automatisk)
+  if (p.service_point_id) {
+    payload.automatic_select_service_point = false;
+    payload.service_point = { id: String(p.service_point_id) };
+  }
   if (p.printer_host && p.printer_name) {
     payload.print = true;
     payload.print_at = {
