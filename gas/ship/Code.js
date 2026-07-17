@@ -696,15 +696,16 @@ function createInvite(p) {
   return { ok: true, token: token, exp: inv.exp };
 }
 
+// Bruger 'invite'-feltet (ikke 'token', som jsonpShip overskriver med session-tokenet)
 function checkInvite(p) {
-  var inv = findInvite_(p.token);
+  var inv = findInvite_(p.invite);
   if (!inv) return { valid: false, error: 'Linket er ugyldigt eller udløbet' };
   return { valid: true, exp: inv.exp };
 }
 
 // Offentlig (ingen auth): opretter brugerens EGEN konto ud fra et gyldigt engangslink
 function acceptInvite(p) {
-  var inv = findInvite_(p.token);
+  var inv = findInvite_(p.invite);
   if (!inv) return { error: 'Linket er ugyldigt eller udløbet' };
   var uname = String(p.username || '').trim();
   if (!/^[A-Za-z0-9._@-]{2,40}$/.test(uname)) return { error: 'Ugyldigt brugernavn (2-40 tegn: bogstaver, tal, . _ @ -)' };

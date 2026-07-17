@@ -6145,7 +6145,7 @@ async function maybeHandleInvite(){
   const login = document.getElementById('login-screen'); if(login) login.style.display='none';
   const el = inviteScreenEl();
   el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div><div class="login-sub">Tjekker link…</div></div>`;
-  let res; try { res = await jsonpShip({action:'checkInvite', token}); } catch(e){ res = {error:'Netværksfejl'}; }
+  let res; try { res = await jsonpShip({action:'checkInvite', invite:token}); } catch(e){ res = {error:'Netværksfejl'}; }
   if(!res || !res.valid){
     el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div>
       <div class="login-sub" style="color:#e88;margin-top:6px">${esc(res&&res.error||'Linket er ugyldigt eller udløbet')}</div>
@@ -6180,7 +6180,7 @@ async function doAcceptInvite(token){
   if(pw!==pw2){ err.textContent='Adgangskoderne er ikke ens'; return; }
   err.textContent='Opretter…';
   const hash = await sha256(pw);
-  let res; try { res = await jsonpShip({action:'acceptInvite', token, username:u, hash}); } catch(e){ res={error:'Netværksfejl'}; }
+  let res; try { res = await jsonpShip({action:'acceptInvite', invite:token, username:u, hash}); } catch(e){ res={error:'Netværksfejl'}; }
   if(res && res.token){
     try { history.replaceState(null,'',location.pathname); } catch(e){}
     const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
