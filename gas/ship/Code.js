@@ -498,10 +498,13 @@ function getTrustInfo(p) {
   var props = getProps();
   var list = loadDeviceTrustList(props);
   saveDeviceTrustList(props, list); // ryd udløbne op
-  var totp;
-  if (multiUserEnabled_()) { var u = currentUser_(p); totp = !!(u && u.totpSecret); }
-  else totp = !!props.getProperty('TOTP_SECRET');
-  return { devices: list.length, max: DEVICE_TRUST_MAX, totp: totp };
+  var totp, mustSetup2fa = false;
+  if (multiUserEnabled_()) {
+    var u = currentUser_(p);                 // null for legacy-token → ikke tvunget
+    totp = !!(u && u.totpSecret);
+    mustSetup2fa = !!(u && !u.totpSecret);   // ægte bruger uden 2FA → skal opsætte før adgang
+  } else totp = !!props.getProperty('TOTP_SECRET');
+  return { devices: list.length, max: DEVICE_TRUST_MAX, totp: totp, mustSetup2fa: mustSetup2fa };
 }
 
 function verifyDeviceTrust(p) {

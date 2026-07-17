@@ -6017,6 +6017,7 @@ function completeLogin(token, meta) {
   recordLogin();
   resetInactivityTimer();
   refreshAdminUI();
+  enforce2FA(); // tving 2FA-opsætning hvis brugeren mangler den
   showItemsSkeleton(); loadAll().then(()=>checkNotifications());
   loadBalance(); loadMonthlyStats(); loadMonthlyHistory();
   loadTemplates(); loadLeverandoerer();
@@ -6183,8 +6184,7 @@ async function doAcceptInvite(token){
   if(res && res.token){
     try { history.replaceState(null,'',location.pathname); } catch(e){}
     const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
-    completeLogin(res.token, res);
-    setTimeout(()=>{ toast('Bruger oprettet — opsæt din 2FA nu'); startForced2FA(); }, 700);
+    completeLogin(res.token, res); // completeLogin → enforce2FA tvinger straks 2FA-opsætning
   } else {
     err.textContent = (res && res.error) || 'Kunne ikke oprette bruger';
   }
@@ -6196,49 +6196,57 @@ function dismissInvite(){
   const login=document.getElementById('login-screen'); if(login) login.style.display='';
 }
 
-// Direkte 2FA-opsætning for den aktuelle bruger (token-baseret, intet password-trin) — bruges ved onboarding
-async function startForced2FA(){
-  const box=document.getElementById('modal-box');
-  box.innerHTML=`<div class="modal-head"><div class="modal-title">Sidste trin: opsæt 2FA</div></div>
-    <div class="modal-body" id="f2fa-body"><div style="padding:20px;text-align:center;color:var(--ink-3)">Henter…</div></div>`;
-  openModal();
-  let res; try{ res=await jsonpShip({action:'setupTOTP'}); }catch(e){ res={error:e.message}; }
-  const body=document.getElementById('f2fa-body'); if(!body) return;
-  if(res && res.secret){
-    const sec=res.secret, secFmt=sec.match(/.{1,4}/g).join(' ');
-    const acct=res.account?('SESU Lager ('+res.account+')'):'SESU Lager';
-    const otpauth='otpauth://totp/'+encodeURIComponent(acct)+'?secret='+sec+'&issuer=SESU';
-    const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=180x180&data='+encodeURIComponent(otpauth);
-    body.innerHTML=`
-      <div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">Scan QR-koden med <strong>Google Authenticator</strong>, eller indtast nøglen manuelt:</div>
-      <div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">
-        <img src="${qrUrl}" style="width:150px;height:150px;border-radius:8px;border:1px solid var(--border)" onerror="this.style.display='none'">
-        <div style="flex:1;min-width:160px">
-          <div style="font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Opsætningsnøgle</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:10px 12px;border-radius:6px;letter-spacing:.12em;line-height:1.8;word-break:break-all">${secFmt}</div>
-        </div>
-      </div>
-      <div class="fg"><label>Bekræft — indtast den 6-cifrede kode fra appen</label>
-        <input id="f2fa-code" type="text" inputmode="numeric" maxlength="7" placeholder="000 000" autofocus style="letter-spacing:.2em;font-size:16px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" onkeydown="if(event.key==='Enter')forced2FAConfirm()"></div>
-      <div id="f2fa-err" style="font-size:12px;color:var(--red);margin-top:8px"></div>
-      <div class="modal-foot" style="padding:0;border:none;margin-top:16px">
-        <button class="btn" onclick="closeModal()">Gør det senere</button>
-        <button class="btn btn-primary" onclick="forced2FAConfirm()">Aktivér 2FA</button>
-      </div>`;
-  } else if(res && res.error && res.error.indexOf('allerede aktiveret')>=0){
-    body.innerHTML=`<div style="padding:20px;text-align:center;color:var(--green)">✓ 2FA er allerede aktiveret</div>`;
-  } else {
-    body.innerHTML=`<div style="padding:16px;color:var(--red)">${esc(res&&res.error||'Kunne ikke starte 2FA-opsætning')}</div>`;
-  }
+// Obligatorisk 2FA-opsætning som BLOKERENDE fuldskærm (ingen "spring over").
+// Håndhæves af enforce2FA: server siger mustSetup2fa=true for en ægte bruger uden 2FA,
+// og skærmen vises igen ved hver sideindlæsning, indtil 2FA er aktiveret.
+function force2faScreenEl(){
+  let el=document.getElementById('force2fa-screen');
+  if(!el){ el=document.createElement('div'); el.id='force2fa-screen'; el.className='login-screen'; el.style.zIndex=10001; document.body.appendChild(el); }
+  el.style.display='flex';
+  return el;
 }
+
+async function startForced2FA(){
+  const el=force2faScreenEl();
+  el.innerHTML=`<div class="login-box"><div class="login-title">Opsæt 2FA</div><div class="login-sub">Henter…</div></div>`;
+  let res; try{ res=await jsonpShip({action:'setupTOTP'}); }catch(e){ res={error:e.message}; }
+  if(res && res.error && res.error.indexOf('allerede aktiveret')>=0){ el.style.display='none'; return; }
+  if(!res || !res.secret){
+    el.innerHTML=`<div class="login-box"><div class="login-title">Opsæt 2FA</div>
+      <div class="login-sub" style="color:#e88;margin-top:6px">${esc(res&&res.error||'Kunne ikke starte 2FA-opsætning')}</div>
+      <button class="login-btn" style="margin-top:14px" onclick="startForced2FA()">Prøv igen</button></div>`;
+    return;
+  }
+  const sec=res.secret, secFmt=sec.match(/.{1,4}/g).join(' ');
+  const acct=res.account?('SESU Lager ('+res.account+')'):'SESU Lager';
+  const otpauth='otpauth://totp/'+encodeURIComponent(acct)+'?secret='+sec+'&issuer=SESU';
+  const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=180x180&data='+encodeURIComponent(otpauth);
+  el.innerHTML=`<div class="login-box" style="max-width:420px">
+    <div class="login-title">Opsæt 2FA (påkrævet)</div>
+    <div class="login-sub" style="margin-bottom:14px">Scan med Google Authenticator for at få adgang:</div>
+    <img src="${qrUrl}" style="width:150px;height:150px;border-radius:8px;background:#fff;padding:6px;display:block;margin:0 auto 12px" onerror="this.style.display='none'">
+    <div style="font-family:monospace;font-size:12px;color:rgba(255,255,255,.55);text-align:center;letter-spacing:.1em;word-break:break-all;margin-bottom:14px">${secFmt}</div>
+    <input id="f2fa-code" class="login-input" inputmode="numeric" maxlength="7" placeholder="000 000" autocomplete="one-time-code" style="text-align:center;letter-spacing:.25em;font-size:20px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" onkeydown="if(event.key==='Enter')forced2FAConfirm()">
+    <button class="login-btn" style="margin-top:12px" onclick="forced2FAConfirm()">Aktivér 2FA</button>
+    <div class="login-err" id="f2fa-err"></div>
+  </div>`;
+  setTimeout(()=>document.getElementById('f2fa-code')?.focus(),50);
+}
+
 async function forced2FAConfirm(){
   const code=(document.getElementById('f2fa-code').value||'').replace(/\s/g,'');
   const err=document.getElementById('f2fa-err');
   if(code.length<6){ err.textContent='Koden skal være 6 cifre'; return; }
   err.textContent='Bekræfter…';
   let res; try{ res=await jsonpShip({action:'confirmTOTPSetup', code}); }catch(e){ res={error:e.message}; }
-  if(res && res.ok){ toast('2FA aktiveret ✓'); closeModal(); }
+  if(res && res.ok){ const el=document.getElementById('force2fa-screen'); if(el) el.style.display='none'; toast('2FA aktiveret ✓'); }
   else { err.textContent=(res&&res.error)||'Forkert kode — prøv igen'; }
+}
+
+// Tvinger 2FA-opsætning hvis serveren siger den aktuelle bruger mangler den. Fail-open ved netværksfejl.
+async function enforce2FA(){
+  try { const r=await jsonpShip({action:'getTrustInfo'}); if(r && r.mustSetup2fa) startForced2FA(); }
+  catch(e){ /* bloker ikke ved netværksfejl */ }
 }
 window.addEventListener('DOMContentLoaded', maybeHandleInvite);
 
@@ -6676,6 +6684,7 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   if (screen) screen.style.display = 'none';
   resetInactivityTimer();
   window.addEventListener('DOMContentLoaded', refreshAdminUI);
+  window.addEventListener('DOMContentLoaded', enforce2FA); // håndhæv obligatorisk 2FA ved genindlæsning
   const _prev=localStorage.getItem('lager_last_login'); const _lll=document.getElementById('last-login-label');
   if(_lll&&_prev) _lll.textContent='Seneste login: '+_prev;
   // Gendan aktiv fane fra URL-hash eller localStorage
