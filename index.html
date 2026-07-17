@@ -6524,10 +6524,15 @@ async function renderUsersAdmin(){
       <div id="ua-invite-out" style="margin-top:8px;font-size:12px"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Opsætning: signeringsnøgle til lager-scriptet</div>
-      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Kopiér denne nøgle til lager-scriptets Script Properties som <code>TOKEN_SIGNING_KEY</code>, ellers kan data-kald ikke validere de nye tokens.</div>
-      <button class="btn btn-ghost btn-sm" onclick="usersAdminShowKey()">Vis signeringsnøgle</button>
-      <div id="ua-key" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:8px;color:var(--ink-2)"></div>
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">Opsætning: forbind lager-scriptet</div>
+      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Ét klik forbinder lager-scriptet, så nye brugeres login kan hente data. Skal kun gøres én gang.</div>
+      <button class="btn btn-primary btn-sm" onclick="usersAdminSyncKey()">🔗 Synkronisér nøgle til lager</button>
+      <div id="ua-sync" style="font-size:12px;margin-top:8px"></div>
+      <details style="margin-top:10px"><summary style="font-size:11px;color:var(--ink-3);cursor:pointer">Manuel metode (avanceret)</summary>
+        <div style="font-size:11px;color:var(--ink-3);margin:6px 0 8px">Alternativt: kopiér nøglen manuelt til lager-scriptets Script Properties som <code>TOKEN_SIGNING_KEY</code>.</div>
+        <button class="btn btn-ghost btn-sm" onclick="usersAdminShowKey()">Vis signeringsnøgle</button>
+        <div id="ua-key" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:8px;color:var(--ink-2)"></div>
+      </details>
     </div>`;
 }
 
@@ -6564,6 +6569,15 @@ async function usersAdminShowKey(){
   el.textContent='Henter…';
   const res=await jsonpShip({action:'getSigningKeyForLager'});
   el.textContent = (res && res.key) ? res.key : (res?.error||'Fejl');
+}
+async function usersAdminSyncKey(){
+  const out=document.getElementById('ua-sync');
+  out.style.color='var(--ink-3)'; out.textContent='Synkroniserer… (kan tage et par sekunder)';
+  let res; try { res=await jsonp({action:'setSigningKey'}); } catch(e){ res={error:e.message}; }  // jsonp = lager-scriptet
+  if(res && res.ok){
+    out.style.color='var(--green)'; out.textContent='✓ Lager forbundet — genindlæser…';
+    setTimeout(()=>location.reload(), 1400);
+  } else { out.style.color='var(--red)'; out.textContent=(res&&res.error)||'Kunne ikke synkronisere'; }
 }
 async function usersAdminInvite(){
   const out=document.getElementById('ua-invite-out');
