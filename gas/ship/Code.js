@@ -137,6 +137,8 @@ function doGet(e) {
       result = confirmTOTPSetup(p);
     } else if (action === 'disableTOTP') {
       result = disableTOTP(p);
+    } else if (action === 'checkInvite') {
+      result = checkInvite(p);
     } else if (tokenExpired(p)) {
       result = { error: 'TOKEN_EXPIRED' };
     } else if (!validToken(p)) {
@@ -184,6 +186,10 @@ function doPost(e) {
       result = confirmTOTPSetup(p);
     } else if (action === 'disableTOTP') {
       result = disableTOTP(p);
+    } else if (action === 'checkInvite') {
+      result = checkInvite(p);
+    } else if (action === 'acceptInvite') {
+      result = acceptInvite(p);
     } else if (action === 'serverLogout') {
       // Kræver korrekt token (uanset udløb) — ellers kunne enhver anonymt tvangs-udlogge
       // ejeren og nulstille alle betroede enheder = trivielt DoS. En udløbet session er
@@ -233,6 +239,7 @@ function doPost(e) {
     else if (action === 'adminResetTotp')        result = adminResetTotp(p);
     else if (action === 'changeMyPassword')      result = changeMyPassword(p);
     else if (action === 'getSigningKeyForLager') result = getSigningKeyForLager(p);
+    else if (action === 'createInvite')          result = createInvite(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
     Logger.log('doPost fejl (' + (p && p.action) + '): ' + (err && err.stack || err));
@@ -660,6 +667,50 @@ function changeMyPassword(p) {
 function getSigningKeyForLager(p) {
   if (!requireAdmin_(p)) return { error: 'Kun admin' };
   return { key: signingKey_() };
+}
+
+// ── INVITATIONER (engangslink, 48t) — partner vælger selv brugernavn/kode/2FA ──
+var INVITE_TTL_MS = 48 * 60 * 60 * 1000;
+
+function loadInvites_() { try { return JSON.parse(getProps().getProperty('INVITES') || '[]'); } catch (e) { return []; } }
+function saveInvites_(list) {
+  var now = Date.now();
+  list = list.filter(function (i) { return i && i.token && i.exp > now; }); // ryd udløbne
+  getProps().setProperty('INVITES', JSON.stringify(list.slice(0, 20)));
+}
+function findInvite_(token) {
+  if (!token) return null;
+  var list = loadInvites_(), now = Date.now();
+  for (var i = 0; i < list.length; i++) if (list[i].token === token && list[i].exp > now) return list[i];
+  return null;
+}
+
+function createInvite(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  var inv = { token: token, exp: Date.now() + INVITE_TTL_MS, admin: !!p.make_admin, created: new Date().toISOString() };
+  var list = loadInvites_(); list.push(inv); saveInvites_(list);
+  return { ok: true, token: token, exp: inv.exp };
+}
+
+function checkInvite(p) {
+  var inv = findInvite_(p.token);
+  if (!inv) return { valid: false, error: 'Linket er ugyldigt eller udløbet' };
+  return { valid: true, exp: inv.exp };
+}
+
+// Offentlig (ingen auth): opretter brugerens EGEN konto ud fra et gyldigt engangslink
+function acceptInvite(p) {
+  var inv = findInvite_(p.token);
+  if (!inv) return { error: 'Linket er ugyldigt eller udløbet' };
+  var uname = String(p.username || '').trim();
+  if (!/^[A-Za-z0-9._@-]{2,40}$/.test(uname)) return { error: 'Ugyldigt brugernavn (2-40 tegn: bogstaver, tal, . _ @ -)' };
+  if (findUser_(uname)) return { error: 'Brugernavnet er optaget — vælg et andet' };
+  if (!/^[a-f0-9]{64}$/.test(String(p.hash || ''))) return { error: 'Adgangskode mangler' };
+  var u = { username: uname, hash: p.hash, admin: !!inv.admin, disabled: false, created: new Date().toISOString() };
+  var users = loadUsers_(); users.push(u); saveUsers_(users);
+  saveInvites_(loadInvites_().filter(function (i) { return i.token !== inv.token; })); // engangs — forbrug
+  return { token: issueToken_(u.username), username: u.username, admin: !!u.admin };
 }
 
 function shipmondoRequest(method, endpoint, payload) {

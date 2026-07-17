@@ -6106,6 +6106,80 @@ function backToPassword() {
   document.getElementById('login-err').textContent = '';
 }
 
+// ── INVITATION (engangslink → partner vælger selv brugernavn/kode/2FA) ──
+function inviteScreenEl(){
+  let el = document.getElementById('invite-screen');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'invite-screen';
+    el.className = 'login-screen';
+    el.style.zIndex = 10000;
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+  return el;
+}
+
+async function maybeHandleInvite(){
+  const m = (location.hash + location.search).match(/invite=([A-Za-z0-9]+)/);
+  if(!m) return false;
+  const token = m[1];
+  const login = document.getElementById('login-screen'); if(login) login.style.display='none';
+  const el = inviteScreenEl();
+  el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div><div class="login-sub">Tjekker link…</div></div>`;
+  let res; try { res = await jsonpShip({action:'checkInvite', token}); } catch(e){ res = {error:'Netværksfejl'}; }
+  if(!res || !res.valid){
+    el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div>
+      <div class="login-sub" style="color:#e88;margin-top:6px">${esc(res&&res.error||'Linket er ugyldigt eller udløbet')}</div>
+      <button class="login-btn" style="margin-top:16px" onclick="dismissInvite()">Til login</button></div>`;
+    return true;
+  }
+  renderInviteForm(token);
+  return true;
+}
+
+function renderInviteForm(token){
+  const el = inviteScreenEl();
+  el.innerHTML = `<div class="login-box">
+    <div class="login-title">Opret din bruger</div>
+    <div class="login-sub" style="margin-bottom:16px">Vælg dit eget brugernavn og adgangskode. Du opsætter 2FA lige efter.</div>
+    <input id="inv-username" class="login-input" placeholder="Vælg brugernavn" autocapitalize="none" autocorrect="off" spellcheck="false" style="margin-bottom:10px">
+    <input id="inv-pw" type="password" class="login-input" placeholder="Vælg adgangskode (min. 8 tegn)" style="margin-bottom:10px">
+    <input id="inv-pw2" type="password" class="login-input" placeholder="Gentag adgangskode" style="margin-bottom:12px" onkeydown="if(event.key==='Enter')doAcceptInvite('${esc(token)}')">
+    <button class="login-btn" onclick="doAcceptInvite('${esc(token)}')">Opret bruger</button>
+    <div class="login-err" id="inv-err"></div>
+  </div>`;
+  setTimeout(()=>document.getElementById('inv-username')?.focus(),50);
+}
+
+async function doAcceptInvite(token){
+  const err = document.getElementById('inv-err');
+  const u   = (document.getElementById('inv-username').value||'').trim();
+  const pw  = document.getElementById('inv-pw').value||'';
+  const pw2 = document.getElementById('inv-pw2').value||'';
+  if(!u){ err.textContent='Vælg et brugernavn'; return; }
+  if(pw.length<8){ err.textContent='Adgangskoden skal være mindst 8 tegn'; return; }
+  if(pw!==pw2){ err.textContent='Adgangskoderne er ikke ens'; return; }
+  err.textContent='Opretter…';
+  const hash = await sha256(pw);
+  let res; try { res = await jsonpShip({action:'acceptInvite', token, username:u, hash}); } catch(e){ res={error:'Netværksfejl'}; }
+  if(res && res.token){
+    try { history.replaceState(null,'',location.pathname); } catch(e){}
+    const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
+    completeLogin(res.token, res);
+    setTimeout(()=>{ toast('Bruger oprettet — opsæt din 2FA nu'); open2FAModal(); }, 700);
+  } else {
+    err.textContent = (res && res.error) || 'Kunne ikke oprette bruger';
+  }
+}
+
+function dismissInvite(){
+  const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
+  try { history.replaceState(null,'',location.pathname); } catch(e){}
+  const login=document.getElementById('login-screen'); if(login) login.style.display='';
+}
+window.addEventListener('DOMContentLoaded', maybeHandleInvite);
+
 // ── ANTHROPIC API-NØGLE ──
 function openApiKeyModal() {
   document.getElementById('modal-box').innerHTML = `
@@ -6373,6 +6447,13 @@ async function renderUsersAdmin(){
       <div id="ua-msg" style="font-size:12px;margin-top:8px"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">Inviter ny bruger (engangslink)</div>
+      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Laver et link der udløber om 48 timer. Personen vælger selv brugernavn, kode og 2FA — ingen kode deles.</div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px"><input type="checkbox" id="ua-invite-admin"> Giv admin-rettigheder</label>
+      <button class="btn btn-primary btn-sm" onclick="usersAdminInvite()">Lav invitationslink</button>
+      <div id="ua-invite-out" style="margin-top:8px;font-size:12px"></div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
       <div style="font-weight:600;font-size:12px;margin-bottom:6px">Opsætning: signeringsnøgle til lager-scriptet</div>
       <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Kopiér denne nøgle til lager-scriptets Script Properties som <code>TOKEN_SIGNING_KEY</code>, ellers kan data-kald ikke validere de nye tokens.</div>
       <button class="btn btn-ghost btn-sm" onclick="usersAdminShowKey()">Vis signeringsnøgle</button>
@@ -6413,6 +6494,22 @@ async function usersAdminShowKey(){
   el.textContent='Henter…';
   const res=await jsonpShip({action:'getSigningKeyForLager'});
   el.textContent = (res && res.key) ? res.key : (res?.error||'Fejl');
+}
+async function usersAdminInvite(){
+  const out=document.getElementById('ua-invite-out');
+  out.style.color='var(--ink-3)'; out.textContent='Laver link…';
+  const makeAdmin=document.getElementById('ua-invite-admin')?.checked;
+  const res=await jsonpShip({action:'createInvite', make_admin:!!makeAdmin});
+  if(res && res.token){
+    const url=location.origin+location.pathname+'#invite='+res.token;
+    const exp=new Date(res.exp).toLocaleString('da-DK');
+    out.style.color='var(--ink)';
+    out.innerHTML=`<div style="color:var(--ink-3);margin-bottom:4px">Engangslink — udløber ${esc(exp)}:</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input readonly value="${esc(url)}" style="flex:1;font-family:monospace;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:6px" onclick="this.select()">
+        <button class="btn btn-primary btn-sm" onclick="const i=this.previousElementSibling;i.select();navigator.clipboard.writeText(i.value).then(()=>toast('Link kopieret'))">Kopiér</button>
+      </div>`;
+  } else { out.style.color='var(--red)'; out.textContent=res?.error||'Fejl'; }
 }
 
 function searchCmdk(q){
