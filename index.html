@@ -1326,8 +1326,9 @@ body.compact .low-row { padding: 8px 16px; }
     <!-- Trin 1: Adgangskode -->
     <div id="login-step-pw">
       <div class="login-sub">SESU bordben — intern adgang</div>
+      <input type="text" id="login-username" class="login-input" placeholder="Brugernavn" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false" style="margin-bottom:10px" onkeydown="if(event.key==='Enter')doLogin()">
       <div class="login-input-wrap">
-        <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" onkeydown="if(event.key==='Enter')doLogin()">
+        <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
       </div>
       <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
@@ -5993,16 +5994,19 @@ function recordLogin(){
 let loginAttempts = 0;
 let _lockoutUntil = 0;
 let _loginHash = ''; // Midlertidigt mellem trin 1 og 2
+let _loginUser = ''; // Brugernavn mellem trin 1 og 2 (multi-bruger)
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-function completeLogin(token) {
+function completeLogin(token, meta) {
   _loginHash = '';
   sessionStorage.setItem('lager_auth', '1');
   sessionStorage.setItem('lager_token', token);
+  if (meta && meta.username) sessionStorage.setItem('lager_user', meta.username);
+  sessionStorage.setItem('lager_is_admin', (meta && meta.admin) ? '1' : '');
   const screen = document.getElementById('login-screen');
   screen.classList.add('hidden');
   setTimeout(() => screen.style.display = 'none', 320);
@@ -6024,23 +6028,24 @@ async function doLogin() {
     return;
   }
   err.textContent = 'Verificerer…';
+  const username = (document.getElementById('login-username')?.value || '').trim();
   const hash = await sha256(inp.value);
   try {
-    const res = await jsonpShip({ action:'verifyLogin', hash });
+    const res = await jsonpShip({ action:'verifyLogin', username, hash });
     if (res && res.token) {
-      completeLogin(res.token);
+      completeLogin(res.token, res);
     } else if (res && res.step2) {
       // Tjek om denne enhed er betroet via separat device-secret (ikke hoved-token)
       try {
         const trust = JSON.parse(localStorage.getItem('lager_device_trust') || 'null');
         if (trust && trust.secret && trust.expires > Date.now()) {
           const tr = await jsonpShip({ action:'verifyDeviceTrust', deviceSecret: trust.secret });
-          if (tr && tr.token) { completeLogin(tr.token); return; }
+          if (tr && tr.token) { completeLogin(tr.token, tr); return; }
           // Device trust udløbet/ugyldig — ryd og vis TOTP
           localStorage.removeItem('lager_device_trust');
         }
       } catch(e) { localStorage.removeItem('lager_device_trust'); }
-      _loginHash = hash;
+      _loginHash = hash; _loginUser = username;
       document.getElementById('login-step-pw').style.display = 'none';
       document.getElementById('login-step-totp').style.display = 'block';
       document.getElementById('totp-input').value = '';
@@ -6073,13 +6078,13 @@ async function doVerifyTOTP() {
   if(code.length < 6){ err.textContent = 'Koden skal være 6 cifre'; return; }
   err.textContent = 'Verificerer…';
   try {
-    const res = await jsonpShip({ action:'verifyStep2', hash: _loginHash, code });
+    const res = await jsonpShip({ action:'verifyStep2', username: _loginUser, hash: _loginHash, code });
     if(res && res.token){
       // Gem device-secret (ikke hoved-token) til 24-timers betroet-enhed
       if(res.deviceSecret) {
         try { localStorage.setItem('lager_device_trust', JSON.stringify({secret:res.deviceSecret, expires:Date.now()+86400000})); } catch(e){}
       }
-      completeLogin(res.token);
+      completeLogin(res.token, res);
     } else {
       err.textContent = res?.error || 'Forkert kode';
       document.getElementById('totp-input').value = '';
@@ -6279,6 +6284,7 @@ function renderCmdkDefault(){
     {icon:'📋',label:'Indkøbsordrer',action:'tab:indkoebsordrer'},
     {icon:'📊',label:'Rapporter',action:'tab:rapporter'},
     {icon:'+',label:'Tilføj ny vare',action:'new-item'},
+    ...(sessionStorage.getItem('lager_is_admin')==='1' ? [{icon:'👤',label:'Brugere (admin)',action:'admin-users'}] : []),
   ];
   document.getElementById('cmdk-results').innerHTML=
     `<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Genveje</div>`+
@@ -6322,6 +6328,88 @@ function execCmdk(action){
   else if(action.startsWith('item:')) openItemModal(action.slice(5),null);
   else if(action.startsWith('lev:')){ showTab('leverandoerer'); setTimeout(()=>openLevModal(action.slice(4)),150); }
   else if(action.startsWith('room:')) showTab('rum');
+  else if(action==='admin-users') openUsersAdmin();
+}
+
+// ── BRUGER-ADMINISTRATION (admin) ──
+async function openUsersAdmin(){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<div class="modal-head"><div class="modal-title">Brugere</div><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="users-admin-body" style="max-height:70vh;overflow-y:auto"><div style="padding:16px;color:var(--ink-3)">Henter…</div></div>`;
+  openModal();
+  renderUsersAdmin();
+}
+
+async function renderUsersAdmin(){
+  const body=document.getElementById('users-admin-body');
+  if(!body) return;
+  let res;
+  try { res=await jsonpShip({action:'listUsers'}); } catch(e){ body.innerHTML=`<div style="padding:16px;color:var(--red)">Fejl: ${esc(e.message)}</div>`; return; }
+  if(!res || res.error){ body.innerHTML=`<div style="padding:16px;color:var(--red)">${esc(res?.error||'Fejl')}</div>`; return; }
+  const you=res.you||'';
+  const rows=(res.users||[]).map(u=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--border-light);${u.disabled?'opacity:.5':''}">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13px">${esc(u.username)}${u.username===you?' <span style="font-size:10px;color:var(--ink-3)">(dig)</span>':''}
+          ${u.admin?'<span class="badge badge-blue" style="font-size:9px">admin</span>':''}
+          ${u.totp?'<span class="badge badge-green" style="font-size:9px">2FA</span>':'<span class="badge badge-gray" style="font-size:9px">ingen 2FA</span>'}
+          ${u.disabled?'<span class="badge badge-red" style="font-size:9px">deaktiveret</span>':''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="usersAdminToggle('${esc(u.username)}',${u.disabled?0:1})" title="${u.disabled?'Aktivér':'Deaktivér'}">${u.disabled?'▶ Aktivér':'⏸ Deaktivér'}</button>
+      ${u.totp?`<button class="btn btn-ghost btn-sm" onclick="usersAdminResetTotp('${esc(u.username)}')" title="Nulstil 2FA (fx tabt telefon)">↺ 2FA</button>`:''}
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="usersAdminDelete('${esc(u.username)}')" title="Slet bruger">🗑</button>
+    </div>`).join('');
+  body.innerHTML=`
+    <div style="margin-bottom:14px">${rows||'<div style="color:var(--ink-3)">Ingen brugere endnu</div>'}</div>
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:8px">Tilføj / opdatér bruger</div>
+      <input id="ua-username" placeholder="Brugernavn" autocapitalize="none" autocorrect="off" spellcheck="false" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
+      <input id="ua-password" type="password" placeholder="Adgangskode (min. 8 tegn)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px"><input type="checkbox" id="ua-admin"> Admin (kan styre brugere)</label>
+      <button class="btn btn-primary btn-sm" onclick="usersAdminAdd()">Gem bruger</button>
+      <div id="ua-msg" style="font-size:12px;margin-top:8px"></div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Opsætning: signeringsnøgle til lager-scriptet</div>
+      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Kopiér denne nøgle til lager-scriptets Script Properties som <code>TOKEN_SIGNING_KEY</code>, ellers kan data-kald ikke validere de nye tokens.</div>
+      <button class="btn btn-ghost btn-sm" onclick="usersAdminShowKey()">Vis signeringsnøgle</button>
+      <div id="ua-key" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:8px;color:var(--ink-2)"></div>
+    </div>`;
+}
+
+async function usersAdminAdd(){
+  const msg=document.getElementById('ua-msg');
+  const username=(document.getElementById('ua-username').value||'').trim();
+  const pw=document.getElementById('ua-password').value||'';
+  const admin=document.getElementById('ua-admin').checked;
+  if(!username){ msg.style.color='var(--red)'; msg.textContent='Brugernavn mangler'; return; }
+  if(pw && pw.length<8){ msg.style.color='var(--red)'; msg.textContent='Adgangskode skal være mindst 8 tegn'; return; }
+  msg.style.color='var(--ink-3)'; msg.textContent='Gemmer…';
+  const payload={action:'adminSaveUser', new_username:username, make_admin:admin};
+  if(pw) payload.new_hash=await sha256(pw);
+  const res=await jsonpShip(payload);
+  if(res && res.ok){ msg.style.color='var(--green)'; msg.textContent='Gemt ✓'; renderUsersAdmin(); }
+  else { msg.style.color='var(--red)'; msg.textContent=res?.error||'Fejl'; }
+}
+async function usersAdminToggle(username,disabled){
+  const res=await jsonpShip({action:'adminSetDisabled', target:username, disabled:!!disabled});
+  if(res && res.ok) renderUsersAdmin(); else toast(res?.error||'Fejl');
+}
+async function usersAdminDelete(username){
+  if(!confirm(`Slet brugeren "${username}"? Personen kan ikke længere logge ind.`)) return;
+  const res=await jsonpShip({action:'adminDeleteUser', target:username});
+  if(res && res.ok) renderUsersAdmin(); else toast(res?.error||'Fejl');
+}
+async function usersAdminResetTotp(username){
+  if(!confirm(`Nulstil 2FA for "${username}"? Personen skal sætte Google Authenticator op igen ved næste login.`)) return;
+  const res=await jsonpShip({action:'adminResetTotp', target:username});
+  if(res && res.ok){ toast('2FA nulstillet'); renderUsersAdmin(); } else toast(res?.error||'Fejl');
+}
+async function usersAdminShowKey(){
+  const el=document.getElementById('ua-key');
+  el.textContent='Henter…';
+  const res=await jsonpShip({action:'getSigningKeyForLager'});
+  el.textContent = (res && res.key) ? res.key : (res?.error||'Fejl');
 }
 
 function searchCmdk(q){

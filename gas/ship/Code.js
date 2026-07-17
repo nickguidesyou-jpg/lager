@@ -13,25 +13,99 @@ function initShipmondoCreds() {
 
 var TOKEN_VALIDITY_MS = 12 * 60 * 60 * 1000; // 12 timer
 
-function validToken(p) {
-  var props    = getProps();
-  var expected = props.getProperty('LAGER_TOKEN');
-  if (!expected || p.token !== expected) return false;
+// ─────────────────────────────────────────────────────────────
+// MULTI-BRUGER + SIGNEREDE PR.-SESSION TOKENS
+// Token = base64url(payload).base64url(HMAC-SHA256(payload, TOKEN_SIGNING_KEY)).
+// Statsløst: begge backends (ship + lager) validerer med samme TOKEN_SIGNING_KEY.
+// Bagudkompatibelt: et gyldigt gammelt statisk LAGER_TOKEN accepteres fortsat, så
+// eksisterende sessioner ikke låses ude under migrering til multi-bruger.
+// ─────────────────────────────────────────────────────────────
+
+function signingKey_() {
+  var props = getProps();
+  var k = props.getProperty('TOKEN_SIGNING_KEY');
+  if (!k) { // auto-generér på ship-siden — kopiér SAMME værdi til lager-scriptets Script Properties
+    k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+    props.setProperty('TOKEN_SIGNING_KEY', k);
+  }
+  return k;
+}
+
+function b64u_(str)    { return Utilities.base64EncodeWebSafe(Utilities.newBlob(str).getBytes()).replace(/=+$/, ''); }
+function b64uToStr_(s) { return Utilities.newBlob(Utilities.base64DecodeWebSafe(s)).getDataAsString(); }
+function hmac64_(msg)  { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(msg, signingKey_())).replace(/=+$/, ''); }
+function constEq_(a, b) {
+  if (a.length !== b.length) return false;
+  var r = 0;
+  for (var i = 0; i < a.length; i++) r |= (a.charCodeAt(i) ^ b.charCodeAt(i));
+  return r === 0;
+}
+
+function issueToken_(username) {
+  var p64 = b64u_(JSON.stringify({ u: username, iat: Date.now(), exp: Date.now() + TOKEN_VALIDITY_MS }));
+  return p64 + '.' + hmac64_(p64);
+}
+
+// {username} hvis signatur ok OG ikke udløbet, ellers null
+function verifySignedToken_(token) {
+  if (!token || String(token).indexOf('.') < 0) return null;
+  var parts = String(token).split('.');
+  if (parts.length !== 2 || !constEq_(hmac64_(parts[0]), parts[1])) return null;
+  var pl;
+  try { pl = JSON.parse(b64uToStr_(parts[0])); } catch (e) { return null; }
+  if (!pl || !pl.exp || Date.now() > pl.exp) return null;
+  return { username: pl.u };
+}
+
+function isValidLegacy_(token) {
+  var props = getProps();
+  var legacy = props.getProperty('LAGER_TOKEN');
+  if (!legacy || token !== legacy) return false;
   var expiry = parseInt(props.getProperty('TOKEN_EXPIRY') || '0', 10);
-  if (expiry > 0 && Date.now() > expiry) return false;
-  return true;
+  return !(expiry > 0 && Date.now() > expiry);
+}
+
+function validToken(p) {
+  if (!p || !p.token) return false;
+  if (isValidLegacy_(p.token)) return true;
+  return verifySignedToken_(p.token) !== null;
 }
 
 function tokenExpired(p) {
-  var props    = getProps();
-  var expected = props.getProperty('LAGER_TOKEN');
-  if (!expected || p.token !== expected) return false;
-  var expiry = parseInt(props.getProperty('TOKEN_EXPIRY') || '0', 10);
-  return expiry > 0 && Date.now() > expiry;
+  if (!p || !p.token) return false;
+  var props = getProps();
+  var legacy = props.getProperty('LAGER_TOKEN');
+  if (legacy && p.token === legacy) {
+    var expiry = parseInt(props.getProperty('TOKEN_EXPIRY') || '0', 10);
+    return expiry > 0 && Date.now() > expiry;
+  }
+  var parts = String(p.token).split('.'); // signeret token med korrekt signatur men udløbet
+  if (parts.length !== 2 || !constEq_(hmac64_(parts[0]), parts[1])) return false;
+  try { var pl = JSON.parse(b64uToStr_(parts[0])); return !!(pl.exp && Date.now() > pl.exp); }
+  catch (e) { return false; }
 }
 
-function refreshExpiry(props) {
-  props.setProperty('TOKEN_EXPIRY', String(Date.now() + TOKEN_VALIDITY_MS));
+function refreshExpiry(props) { props.setProperty('TOKEN_EXPIRY', String(Date.now() + TOKEN_VALIDITY_MS)); } // kun legacy-token
+
+// ── Bruger-lager (Script Property USERS = JSON-array) ──
+function loadUsers_() { try { return JSON.parse(getProps().getProperty('USERS') || '[]'); } catch (e) { return []; } }
+function saveUsers_(list) { getProps().setProperty('USERS', JSON.stringify(list)); }
+function multiUserEnabled_() { return loadUsers_().length > 0; }
+function findUser_(username) {
+  if (!username) return null;
+  var list = loadUsers_(), un = String(username).toLowerCase();
+  for (var i = 0; i < list.length; i++) if (String(list[i].username).toLowerCase() === un) return list[i];
+  return null;
+}
+function currentUser_(p) { var v = verifySignedToken_(p && p.token); return v ? findUser_(v.username) : null; }
+function requireAdmin_(p) {
+  var u = currentUser_(p);
+  if (u && u.admin && !u.disabled) return u;
+  if (isValidLegacy_(p && p.token)) return { username: '(legacy-admin)', admin: true, legacy: true }; // bootstrap
+  return null;
+}
+function publicUser_(u) {
+  return { username: u.username, admin: !!u.admin, disabled: !!u.disabled, totp: !!u.totpSecret, created: u.created || '' };
 }
 
 function sendLockoutAlert(type) {
@@ -150,8 +224,15 @@ function doPost(e) {
     else if (action === 'getMonthlyHistory')     result = getMonthlyHistory();
     else if (action === 'createShipment')        result = createShipment(p);
     else if (action === 'sendReorderEmail')      result = sendReorderEmail(p);
-    else if (action === 'getTrustInfo')          result = getTrustInfo();
+    else if (action === 'getTrustInfo')          result = getTrustInfo(p);
     else if (action === 'claudeProxy')           result = claudeProxy(p);
+    else if (action === 'listUsers')             result = listUsers(p);
+    else if (action === 'adminSaveUser')         result = adminSaveUser(p);
+    else if (action === 'adminDeleteUser')       result = adminDeleteUser(p);
+    else if (action === 'adminSetDisabled')      result = adminSetDisabled(p);
+    else if (action === 'adminResetTotp')        result = adminResetTotp(p);
+    else if (action === 'changeMyPassword')      result = changeMyPassword(p);
+    else if (action === 'getSigningKeyForLager') result = getSigningKeyForLager(p);
     else result = { error: 'Ukendt handling: ' + action };
   } catch (err) {
     Logger.log('doPost fejl (' + (p && p.action) + '): ' + (err && err.stack || err));
@@ -247,7 +328,36 @@ function generateTOTPSecret() {
   return s;
 }
 
-function verifyLogin(p) {
+function verifyLogin(p) { return multiUserEnabled_() ? verifyLoginMU_(p) : verifyLoginLegacy_(p); }
+
+// Multi-bruger: brugernavn + kode. Pr.-bruger lockout. Samme fejl uanset om brugeren findes.
+function verifyLoginMU_(p) {
+  var props = getProps(), now = Date.now();
+  var uname = String(p.username || '').trim(), key = uname.toLowerCase();
+  var akey = 'LA_' + key, lkey = 'LL_' + key;
+  var lockUntil = parseInt(props.getProperty(lkey) || '0', 10);
+  if (key && now < lockUntil)
+    return { error: 'For mange forsøg — prøv igen om ' + Math.ceil((lockUntil - now) / 60000) + ' min.' };
+
+  var user = findUser_(uname);
+  if (user && !user.disabled && p.hash && p.hash === user.hash) {
+    props.deleteProperty(akey); props.deleteProperty(lkey);
+    if (user.totpSecret) return { step2: true, username: user.username };
+    return { token: issueToken_(user.username), username: user.username, admin: !!user.admin };
+  }
+
+  var attempts = parseInt(props.getProperty(akey) || '0', 10) + 1;
+  if (attempts >= LOGIN_MAX_ATTEMPTS) {
+    props.setProperty(lkey, String(now + LOGIN_LOCKOUT_MS));
+    props.setProperty(akey, '0');
+    sendLockoutAlert('adgangskode');
+    return { error: 'For mange forsøg — låst i 15 min.' };
+  }
+  props.setProperty(akey, String(attempts));
+  return { error: 'Forkert brugernavn eller adgangskode — ' + (LOGIN_MAX_ATTEMPTS - attempts) + ' forsøg tilbage' };
+}
+
+function verifyLoginLegacy_(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
   var token      = props.getProperty('LAGER_TOKEN');
@@ -268,7 +378,7 @@ function verifyLogin(p) {
     var totpSecret = props.getProperty('TOTP_SECRET');
     if (totpSecret) return { step2: true };
     refreshExpiry(props); // Forny 12-timers session
-    return { token: token };
+    return { token: token, admin: true }; // legacy = ejer/admin (kan oprette brugere)
   }
 
   attempts++;
@@ -283,7 +393,40 @@ function verifyLogin(p) {
   return { error: 'Forkert kode — ' + left + ' forsøg tilbage' };
 }
 
-function verifyStep2(p) {
+function verifyStep2(p) { return multiUserEnabled_() ? verifyStep2MU_(p) : verifyStep2Legacy_(p); }
+
+function verifyStep2MU_(p) {
+  var props = getProps(), now = Date.now();
+  var uname = String(p.username || '').trim(), key = uname.toLowerCase();
+  var user = findUser_(uname);
+  if (!user || user.disabled || !user.totpSecret) return { error: 'Ugyldig session — log ind igen' };
+  if (!p.hash || p.hash !== user.hash)            return { error: 'Ugyldig session — log ind igen' };
+
+  var akey = 'TA_' + key, lkey = 'TL_' + key;
+  var lockUntil = parseInt(props.getProperty(lkey) || '0', 10);
+  if (now < lockUntil) return { error: 'For mange forsøg — vent ' + Math.ceil((lockUntil - now) / 60000) + ' min.' };
+
+  if (!checkTOTP(user.totpSecret, p.code)) {
+    var attempts = parseInt(props.getProperty(akey) || '0', 10) + 1;
+    if (attempts >= TOTP_MAX_ATTEMPTS) {
+      props.setProperty(lkey, String(now + TOTP_LOCKOUT_MS));
+      props.setProperty(akey, '0');
+      sendLockoutAlert('TOTP');
+      return { error: 'For mange forsøg — låst i 5 min.' };
+    }
+    props.setProperty(akey, String(attempts));
+    return { error: 'Forkert kode — ' + (TOTP_MAX_ATTEMPTS - attempts) + ' forsøg tilbage' };
+  }
+
+  props.deleteProperty(akey); props.deleteProperty(lkey);
+  var deviceSecret = Utilities.getUuid().replace(/-/g, '');
+  var list = loadDeviceTrustList(props);
+  list.push({ secret: deviceSecret, expires: now + DEVICE_TRUST_TTL_MS, username: user.username });
+  saveDeviceTrustList(props, list);
+  return { token: issueToken_(user.username), deviceSecret: deviceSecret, username: user.username, admin: !!user.admin };
+}
+
+function verifyStep2Legacy_(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
   var token      = props.getProperty('LAGER_TOKEN');
@@ -319,7 +462,7 @@ function verifyStep2(p) {
   var trustList = loadDeviceTrustList(props);
   trustList.push({ secret: deviceSecret, expires: now + DEVICE_TRUST_TTL_MS });
   saveDeviceTrustList(props, trustList);
-  return { token: token, deviceSecret: deviceSecret };
+  return { token: token, deviceSecret: deviceSecret, admin: true };
 }
 
 var DEVICE_TRUST_MAX    = 5;
@@ -344,11 +487,14 @@ function saveDeviceTrustList(props, list) {
   props.setProperty('DEVICE_TRUST_LIST', JSON.stringify(list.slice(0, DEVICE_TRUST_MAX)));
 }
 
-function getTrustInfo() {
+function getTrustInfo(p) {
   var props = getProps();
   var list = loadDeviceTrustList(props);
   saveDeviceTrustList(props, list); // ryd udløbne op
-  return { devices: list.length, max: DEVICE_TRUST_MAX, totp: !!props.getProperty('TOTP_SECRET') };
+  var totp;
+  if (multiUserEnabled_()) { var u = currentUser_(p); totp = !!(u && u.totpSecret); }
+  else totp = !!props.getProperty('TOTP_SECRET');
+  return { devices: list.length, max: DEVICE_TRUST_MAX, totp: totp };
 }
 
 function verifyDeviceTrust(p) {
@@ -360,37 +506,74 @@ function verifyDeviceTrust(p) {
     if (p.deviceSecret && list[i].secret === p.deviceSecret) { match = list[i]; break; }
   }
   if (!match) return { error: 'Ugyldig enhed' };
-  refreshExpiry(props); // Forny session
-  return { token: props.getProperty('LAGER_TOKEN') };
+  if (match.username) { // multi-bruger: udsted personligt signeret token
+    var u = findUser_(match.username);
+    if (!u || u.disabled) return { error: 'Ugyldig enhed' };
+    return { token: issueToken_(u.username), username: u.username, admin: !!u.admin };
+  }
+  refreshExpiry(props); // legacy device
+  return { token: props.getProperty('LAGER_TOKEN'), admin: true };
 }
 
 function setupTOTP(p) {
+  if (!multiUserEnabled_()) return setupTOTPLegacy_(p);
+  var u = currentUser_(p);
+  if (!u) return { error: 'Ikke autoriseret' };
+  if (u.totpSecret) return { error: '2FA er allerede aktiveret' };
+  var secret = generateTOTPSecret();
+  updateUser_(u.username, function (x) { x.totpPending = secret; });
+  return { secret: secret, account: u.username };
+}
+
+function confirmTOTPSetup(p) {
+  if (!multiUserEnabled_()) return confirmTOTPSetupLegacy_(p);
+  var u = currentUser_(p);
+  if (!u) return { error: 'Ikke autoriseret' };
+  if (!u.totpPending) return { error: 'Ingen ventende TOTP-opsætning' };
+  if (!checkTOTP(u.totpPending, p.code)) {
+    updateUser_(u.username, function (x) { delete x.totpPending; });
+    return { error: 'Forkert kode — prøv igen fra start' };
+  }
+  updateUser_(u.username, function (x) { x.totpSecret = x.totpPending; delete x.totpPending; });
+  return { ok: true };
+}
+
+function disableTOTP(p) {
+  if (!multiUserEnabled_()) return disableTOTPLegacy_(p);
+  var u = currentUser_(p);
+  if (!u) return { error: 'Ikke autoriseret' };
+  if (!u.totpSecret) return { error: '2FA er ikke aktiveret' };
+  if (!checkTOTP(u.totpSecret, p.code)) return { error: 'Forkert Google Authenticator-kode' };
+  updateUser_(u.username, function (x) { delete x.totpSecret; });
+  return { ok: true };
+}
+
+function setupTOTPLegacy_(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
   if (!storedHash || p.hash !== storedHash) return { error: 'Forkert adgangskode' };
   if (props.getProperty('TOTP_SECRET'))    return { error: '2FA er allerede aktiveret' };
   var secret = generateTOTPSecret();
-  props.setProperty('TOTP_PENDING', secret); // Gemmes som pending — aktiveres først ved confirmTOTPSetup
+  props.setProperty('TOTP_PENDING', secret);
   return { secret: secret };
 }
 
-function confirmTOTPSetup(p) {
+function confirmTOTPSetupLegacy_(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
   if (!storedHash || p.hash !== storedHash) return { error: 'Forkert adgangskode' };
   var pending = props.getProperty('TOTP_PENDING');
   if (!pending) return { error: 'Ingen ventende TOTP-opsætning' };
   if (!checkTOTP(pending, p.code)) {
-    props.deleteProperty('TOTP_PENDING'); // Fjern pending hvis bekræftelse fejler
+    props.deleteProperty('TOTP_PENDING');
     return { error: 'Forkert kode — prøv igen fra start' };
   }
-  // Bekræftelse lykkedes — promovér pending → aktiv
   props.setProperty('TOTP_SECRET', pending);
   props.deleteProperty('TOTP_PENDING');
   return { ok: true };
 }
 
-function disableTOTP(p) {
+function disableTOTPLegacy_(p) {
   var props      = getProps();
   var storedHash = props.getProperty('LAGER_HASH');
   var secret     = props.getProperty('TOTP_SECRET');
@@ -399,6 +582,84 @@ function disableTOTP(p) {
   if (!checkTOTP(secret, p.code)) return { error: 'Forkert Google Authenticator-kode' };
   props.deleteProperty('TOTP_SECRET');
   return { ok: true };
+}
+
+// ── BRUGER-ADMINISTRATION (kun admin; legacy-token = bootstrap-admin) ──
+function updateUser_(username, fn) {
+  var list = loadUsers_(), un = String(username).toLowerCase();
+  for (var i = 0; i < list.length; i++)
+    if (String(list[i].username).toLowerCase() === un) { fn(list[i]); saveUsers_(list); return list[i]; }
+  return null;
+}
+function activeAdminCount_() {
+  return loadUsers_().filter(function (u) { return u.admin && !u.disabled; }).length;
+}
+
+function listUsers(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  return { users: loadUsers_().map(publicUser_), you: (currentUser_(p) || {}).username || null };
+}
+
+function adminSaveUser(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  var uname = String(p.new_username || '').trim();
+  if (!/^[A-Za-z0-9._@-]{2,40}$/.test(uname)) return { error: 'Ugyldigt brugernavn (2-40 tegn: bogstaver, tal, . _ @ -)' };
+  var hasHash = /^[a-f0-9]{64}$/.test(String(p.new_hash || ''));
+  var existing = findUser_(uname);
+  if (existing) {
+    updateUser_(existing.username, function (x) {
+      if (hasHash) x.hash = p.new_hash;
+      if (typeof p.make_admin !== 'undefined') x.admin = !!p.make_admin;
+    });
+    return { ok: true, user: publicUser_(findUser_(uname)) };
+  }
+  if (!hasHash) return { error: 'Adgangskode mangler (skal hashes i klienten)' };
+  var u = { username: uname, hash: p.new_hash, admin: !!p.make_admin, disabled: false, created: new Date().toISOString() };
+  var list = loadUsers_(); list.push(u); saveUsers_(list);
+  return { ok: true, user: publicUser_(u) };
+}
+
+function adminSetDisabled(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  var u = findUser_(p.target);
+  if (!u) return { error: 'Bruger findes ikke' };
+  var disable = !!p.disabled;
+  if (disable && u.admin && !u.disabled && activeAdminCount_() <= 1) return { error: 'Kan ikke deaktivere den sidste admin' };
+  updateUser_(u.username, function (x) { x.disabled = disable; });
+  return { ok: true };
+}
+
+function adminDeleteUser(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  var u = findUser_(p.target);
+  if (!u) return { ok: true };
+  if (u.admin && !u.disabled && activeAdminCount_() <= 1) return { error: 'Kan ikke slette den sidste admin' };
+  var un = String(p.target).toLowerCase();
+  saveUsers_(loadUsers_().filter(function (x) { return String(x.username).toLowerCase() !== un; }));
+  return { ok: true };
+}
+
+function adminResetTotp(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  var u = findUser_(p.target);
+  if (!u) return { error: 'Bruger findes ikke' };
+  updateUser_(u.username, function (x) { delete x.totpSecret; delete x.totpPending; });
+  return { ok: true };
+}
+
+function changeMyPassword(p) {
+  var u = currentUser_(p);
+  if (!u) return { error: 'Ikke autoriseret' };
+  if (!p.old_hash || p.old_hash !== u.hash) return { error: 'Nuværende kode er forkert' };
+  if (!/^[a-f0-9]{64}$/.test(String(p.new_hash || ''))) return { error: 'Ny kode mangler' };
+  updateUser_(u.username, function (x) { x.hash = p.new_hash; });
+  return { ok: true };
+}
+
+// Admin henter signeringsnøglen for at kopiere den til lager-scriptets Script Properties
+function getSigningKeyForLager(p) {
+  if (!requireAdmin_(p)) return { error: 'Kun admin' };
+  return { key: signingKey_() };
 }
 
 function shipmondoRequest(method, endpoint, payload) {
