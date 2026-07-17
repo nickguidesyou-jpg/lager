@@ -6191,7 +6191,8 @@ async function tfa2Step1() {
       // Show setup
       const sec = res.secret;
       const secFmt = sec.match(/.{1,4}/g).join(' ');
-      const otpauth = 'otpauth://totp/SESU%20Lager?secret=' + sec + '&issuer=SESU';
+      const acct = res.account ? 'SESU Lager ('+res.account+')' : 'SESU Lager';
+      const otpauth = 'otpauth://totp/' + encodeURIComponent(acct) + '?secret=' + sec + '&issuer=SESU';
       const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(otpauth);
       body.innerHTML = `
         <div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">Scan QR-koden med <strong>Google Authenticator</strong>, eller indtast nøglen manuelt:</div>
@@ -6284,6 +6285,7 @@ function renderCmdkDefault(){
     {icon:'📋',label:'Indkøbsordrer',action:'tab:indkoebsordrer'},
     {icon:'📊',label:'Rapporter',action:'tab:rapporter'},
     {icon:'+',label:'Tilføj ny vare',action:'new-item'},
+    {icon:'🔐',label:'Opsæt / skift min 2FA',action:'setup-2fa'},
     ...(sessionStorage.getItem('lager_is_admin')==='1' ? [{icon:'👤',label:'Brugere (admin)',action:'admin-users'}] : []),
   ];
   document.getElementById('cmdk-results').innerHTML=
@@ -6329,6 +6331,7 @@ function execCmdk(action){
   else if(action.startsWith('lev:')){ showTab('leverandoerer'); setTimeout(()=>openLevModal(action.slice(4)),150); }
   else if(action.startsWith('room:')) showTab('rum');
   else if(action==='admin-users') openUsersAdmin();
+  else if(action==='setup-2fa') open2FAModal();
 }
 
 // ── BRUGER-ADMINISTRATION (admin) ──
