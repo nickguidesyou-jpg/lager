@@ -1331,6 +1331,7 @@ body.compact .low-row { padding: 8px 16px; }
         <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.4);font-size:12px;margin:2px 0 12px;cursor:pointer;user-select:none"><input type="checkbox" id="login-remember" style="cursor:pointer"> Husk brugernavn</label>
       <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
     </div>
 
@@ -6029,6 +6030,8 @@ async function doLogin() {
   }
   err.textContent = 'Verificerer…';
   const username = (document.getElementById('login-username')?.value || '').trim();
+  const remember = document.getElementById('login-remember')?.checked;
+  try { if(remember && username) localStorage.setItem('lager_remember_user', username); else if(!remember) localStorage.removeItem('lager_remember_user'); } catch(e){}
   const hash = await sha256(inp.value);
   try {
     const res = await jsonpShip({ action:'verifyLogin', username, hash });
@@ -6625,9 +6628,15 @@ if (sessionStorage.getItem('lager_auth') === '1') {
 } else {
   window.addEventListener('DOMContentLoaded', () => {
     const inp = document.getElementById('login-input');
+    // Husk brugernavn: forudfyld + fokusér adgangskode i stedet
+    const savedUser = (()=>{ try { return localStorage.getItem('lager_remember_user'); } catch(e){ return null; } })();
+    const unameInp = document.getElementById('login-username');
+    const rememberCb = document.getElementById('login-remember');
+    if (rememberCb) rememberCb.checked = true; // default: husk
+    if (savedUser && unameInp) unameInp.value = savedUser;
     if (inp) {
-      inp.focus();
       inp.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+      (savedUser ? inp : (unameInp || inp)).focus();
     }
   });
 }
