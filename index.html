@@ -1323,24 +1323,13 @@ body.compact .low-row { padding: 8px 16px; }
     <img src="https://sesu.dk/wp-content/uploads/2021/09/logo-212X212.png" alt="SESU logo" class="login-logo">
     <div class="login-title">Lagersystem</div>
 
-    <!-- Trin 1: Adgangskode -->
     <div id="login-step-pw">
       <div class="login-sub">SESU bordben — intern adgang</div>
-      <input type="text" id="login-username" class="login-input" placeholder="Brugernavn" autocapitalize="none" autocorrect="off" autocomplete="username" spellcheck="false" style="margin-bottom:10px" onkeydown="if(event.key==='Enter')doLogin()">
       <div class="login-input-wrap">
         <input type="password" id="login-input" class="login-input" placeholder="Adgangskode" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="login-toggle" onclick="toggleLoginVis()" id="login-vis-btn" title="Vis/skjul kode">👁</button>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.4);font-size:12px;margin:2px 0 12px;cursor:pointer;user-select:none"><input type="checkbox" id="login-remember" style="cursor:pointer"> Husk brugernavn</label>
-      <button class="login-btn" onclick="doLogin()">Åbn lagersystem</button>
-    </div>
-
-    <!-- Trin 2: TOTP -->
-    <div id="login-step-totp" style="display:none">
-      <div class="login-sub" style="margin-bottom:18px">Indtast koden fra Google Authenticator</div>
-      <input type="text" id="totp-input" class="login-input" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" autocomplete="one-time-code" style="letter-spacing:.25em;text-align:center;font-size:22px" onkeydown="if(event.key==='Enter')doVerifyTOTP()" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')">
-      <button class="login-btn" onclick="doVerifyTOTP()" style="margin-top:12px">Bekræft</button>
-      <button onclick="backToPassword()" style="background:none;border:none;color:rgba(255,255,255,.35);font-size:12px;cursor:pointer;margin-top:10px;display:block;width:100%;text-align:center">← Tilbage til adgangskode</button>
+      <button class="login-btn" onclick="doLogin()" style="margin-top:12px">Åbn lagersystem</button>
     </div>
 
     <div class="login-err" id="login-err"></div>
@@ -1420,7 +1409,6 @@ body.compact .low-row { padding: 8px 16px; }
       </div>
       <div id="last-login-label" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.25);line-height:1.4"></div>
       <div style="display:flex;gap:6px;margin-top:8px">
-        <button onclick="open2FAModal()" style="flex:1;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 10px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:center" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'" title="Opsæt to-faktor godkendelse">🔐 2FA</button>
         <button onclick="openApiKeyModal()" style="flex:1;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 10px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:center" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'" title="Sæt Anthropic API-nøgle">✦ AI</button>
         <button onclick="doLogout()" style="flex:2;background:none;border:1px solid rgba(255,255,255,.12);border-radius:var(--radius);padding:7px 12px;color:rgba(255,255,255,.4);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left" onmouseover="this.style.color='rgba(255,255,255,.7)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseout="this.style.color='rgba(255,255,255,.4)';this.style.borderColor='rgba(255,255,255,.12)'">⎋ Log ud</button>
       </div>
@@ -1505,7 +1493,6 @@ body.compact .low-row { padding: 8px 16px; }
       <div class="topbar-actions">
         <span id="offline-badge" class="badge badge-amber" style="display:none;cursor:pointer;align-self:center" onclick="flushOfflineQueue()" title="Ændringer venter på synkronisering — klik for at prøve nu"></span>
         <button class="btn btn-ghost btn-sm" onclick="openCmdK()" title="Søg alt (Cmd+K / Ctrl+K)">⌕</button>
-        <button class="btn btn-ghost btn-sm" id="admin-users-btn" style="display:none" onclick="openUsersAdmin()" title="Brugere & invitationslink">👤 Brugere</button>
         <button class="btn btn-ghost btn-sm" id="dark-toggle" onclick="toggleDark()" title="Mørk/lys tilstand">☀</button>
         <button class="btn btn-ghost btn-sm" onclick="openShortcutsModal()" title="Tastaturgenveje">?</button>
         <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Eksporter lagerliste som CSV">↓ CSV</button>
@@ -5970,7 +5957,7 @@ async function doUnlock(){
   errEl.textContent='Verificerer…';
   try {
     const res=await jsonpShip({action:'verifyLogin',hash});
-    if(res&&(res.token||res.step2)){
+    if(res&&res.token){
       document.getElementById('screen-lock').style.display='none';
       inp.value=''; errEl.textContent='';
       resetInactivityTimer();
@@ -5995,8 +5982,6 @@ function recordLogin(){
 // ── LOGIN ──
 let loginAttempts = 0;
 let _lockoutUntil = 0;
-let _loginHash = ''; // Midlertidigt mellem trin 1 og 2
-let _loginUser = ''; // Brugernavn mellem trin 1 og 2 (multi-bruger)
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -6004,11 +5989,8 @@ async function sha256(str) {
 }
 
 function completeLogin(token, meta) {
-  _loginHash = '';
   sessionStorage.setItem('lager_auth', '1');
   sessionStorage.setItem('lager_token', token);
-  if (meta && meta.username) sessionStorage.setItem('lager_user', meta.username);
-  sessionStorage.setItem('lager_is_admin', (meta && meta.admin) ? '1' : '');
   const screen = document.getElementById('login-screen');
   screen.classList.add('hidden');
   setTimeout(() => screen.style.display = 'none', 320);
@@ -6016,23 +5998,9 @@ function completeLogin(token, meta) {
   document.getElementById('login-err').textContent = '';
   recordLogin();
   resetInactivityTimer();
-  refreshAdminUI();
-  enforce2FA(); // tving 2FA-opsætning hvis brugeren mangler den
   showItemsSkeleton(); loadAll().then(()=>checkNotifications());
   loadBalance(); loadMonthlyStats(); loadMonthlyHistory();
   loadTemplates(); loadLeverandoerer();
-}
-
-// Vis/skjul admin-knappen. Gammel session uden flag → spørg serveren én gang.
-async function refreshAdminUI(){
-  const b=document.getElementById('admin-users-btn');
-  if(!b) return;
-  let flag=sessionStorage.getItem('lager_is_admin');
-  if(flag===null){
-    try { const r=await jsonpShip({action:'listUsers'}); flag=(r && !r.error)?'1':''; sessionStorage.setItem('lager_is_admin',flag); }
-    catch(e){ flag=''; }
-  }
-  b.style.display = flag==='1' ? '' : 'none';
 }
 
 async function doLogin() {
@@ -6044,31 +6012,11 @@ async function doLogin() {
     return;
   }
   err.textContent = 'Verificerer…';
-  const username = (document.getElementById('login-username')?.value || '').trim();
-  const remember = document.getElementById('login-remember')?.checked;
-  try { if(remember && username) localStorage.setItem('lager_remember_user', username); else if(!remember) localStorage.removeItem('lager_remember_user'); } catch(e){}
   const hash = await sha256(inp.value);
   try {
-    const res = await jsonpShip({ action:'verifyLogin', username, hash });
+    const res = await jsonpShip({ action:'verifyLogin', hash });
     if (res && res.token) {
       completeLogin(res.token, res);
-    } else if (res && res.step2) {
-      // Tjek om denne enhed er betroet via separat device-secret (ikke hoved-token)
-      try {
-        const trust = JSON.parse(localStorage.getItem('lager_device_trust') || 'null');
-        if (trust && trust.secret && trust.expires > Date.now()) {
-          const tr = await jsonpShip({ action:'verifyDeviceTrust', deviceSecret: trust.secret });
-          if (tr && tr.token) { completeLogin(tr.token, tr); return; }
-          // Device trust udløbet/ugyldig — ryd og vis TOTP
-          localStorage.removeItem('lager_device_trust');
-        }
-      } catch(e) { localStorage.removeItem('lager_device_trust'); }
-      _loginHash = hash; _loginUser = username;
-      document.getElementById('login-step-pw').style.display = 'none';
-      document.getElementById('login-step-totp').style.display = 'block';
-      document.getElementById('totp-input').value = '';
-      document.getElementById('totp-input').focus();
-      err.textContent = '';
     } else {
       loginAttempts++;
       if(loginAttempts >= 5){
@@ -6089,166 +6037,6 @@ async function doLogin() {
     setTimeout(() => err.textContent = '', 3000);
   }
 }
-
-async function doVerifyTOTP() {
-  const code = document.getElementById('totp-input').value.replace(/\s/g,'');
-  const err  = document.getElementById('login-err');
-  if(code.length < 6){ err.textContent = 'Koden skal være 6 cifre'; return; }
-  err.textContent = 'Verificerer…';
-  try {
-    const res = await jsonpShip({ action:'verifyStep2', username: _loginUser, hash: _loginHash, code });
-    if(res && res.token){
-      // Gem device-secret (ikke hoved-token) til 24-timers betroet-enhed
-      if(res.deviceSecret) {
-        try { localStorage.setItem('lager_device_trust', JSON.stringify({secret:res.deviceSecret, expires:Date.now()+86400000})); } catch(e){}
-      }
-      completeLogin(res.token, res);
-    } else {
-      err.textContent = res?.error || 'Forkert kode';
-      document.getElementById('totp-input').value = '';
-      document.getElementById('totp-input').focus();
-      setTimeout(() => err.textContent = '', 3500);
-    }
-  } catch(e) {
-    err.textContent = 'Serverfejl — prøv igen';
-    setTimeout(() => err.textContent = '', 3000);
-  }
-}
-
-function backToPassword() {
-  _loginHash = '';
-  document.getElementById('login-step-totp').style.display = 'none';
-  document.getElementById('login-step-pw').style.display = 'block';
-  document.getElementById('login-input').value = '';
-  document.getElementById('login-input').focus();
-  document.getElementById('login-err').textContent = '';
-}
-
-// ── INVITATION (engangslink → partner vælger selv brugernavn/kode/2FA) ──
-function inviteScreenEl(){
-  let el = document.getElementById('invite-screen');
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'invite-screen';
-    el.className = 'login-screen';
-    el.style.zIndex = 10000;
-    document.body.appendChild(el);
-  }
-  el.style.display = 'flex';
-  return el;
-}
-
-async function maybeHandleInvite(){
-  const m = (location.hash + location.search).match(/invite=([A-Za-z0-9]+)/);
-  if(!m) return false;
-  const token = m[1];
-  const login = document.getElementById('login-screen'); if(login) login.style.display='none';
-  const el = inviteScreenEl();
-  el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div><div class="login-sub">Tjekker link…</div></div>`;
-  let res; try { res = await jsonpShip({action:'checkInvite', invite:token}); } catch(e){ res = {error:'Netværksfejl'}; }
-  if(!res || !res.valid){
-    el.innerHTML = `<div class="login-box"><div class="login-title">Invitation</div>
-      <div class="login-sub" style="color:#e88;margin-top:6px">${esc(res&&res.error||'Linket er ugyldigt eller udløbet')}</div>
-      <button class="login-btn" style="margin-top:16px" onclick="dismissInvite()">Til login</button></div>`;
-    return true;
-  }
-  renderInviteForm(token);
-  return true;
-}
-
-function renderInviteForm(token){
-  const el = inviteScreenEl();
-  el.innerHTML = `<div class="login-box">
-    <div class="login-title">Opret din bruger</div>
-    <div class="login-sub" style="margin-bottom:16px">Vælg dit eget brugernavn og adgangskode. Du opsætter 2FA lige efter.</div>
-    <input id="inv-username" class="login-input" placeholder="Vælg brugernavn" autocapitalize="none" autocorrect="off" spellcheck="false" style="margin-bottom:10px">
-    <input id="inv-pw" type="password" class="login-input" placeholder="Vælg adgangskode (min. 8 tegn)" style="margin-bottom:10px">
-    <input id="inv-pw2" type="password" class="login-input" placeholder="Gentag adgangskode" style="margin-bottom:12px" onkeydown="if(event.key==='Enter')doAcceptInvite('${esc(token)}')">
-    <button class="login-btn" onclick="doAcceptInvite('${esc(token)}')">Opret bruger</button>
-    <div class="login-err" id="inv-err"></div>
-  </div>`;
-  setTimeout(()=>document.getElementById('inv-username')?.focus(),50);
-}
-
-async function doAcceptInvite(token){
-  const err = document.getElementById('inv-err');
-  const u   = (document.getElementById('inv-username').value||'').trim();
-  const pw  = document.getElementById('inv-pw').value||'';
-  const pw2 = document.getElementById('inv-pw2').value||'';
-  if(!u){ err.textContent='Vælg et brugernavn'; return; }
-  if(pw.length<8){ err.textContent='Adgangskoden skal være mindst 8 tegn'; return; }
-  if(pw!==pw2){ err.textContent='Adgangskoderne er ikke ens'; return; }
-  err.textContent='Opretter…';
-  const hash = await sha256(pw);
-  let res; try { res = await jsonpShip({action:'acceptInvite', invite:token, username:u, hash}); } catch(e){ res={error:'Netværksfejl'}; }
-  if(res && res.token){
-    try { history.replaceState(null,'',location.pathname); } catch(e){}
-    const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
-    completeLogin(res.token, res); // completeLogin → enforce2FA tvinger straks 2FA-opsætning
-  } else {
-    err.textContent = (res && res.error) || 'Kunne ikke oprette bruger';
-  }
-}
-
-function dismissInvite(){
-  const el=document.getElementById('invite-screen'); if(el) el.style.display='none';
-  try { history.replaceState(null,'',location.pathname); } catch(e){}
-  const login=document.getElementById('login-screen'); if(login) login.style.display='';
-}
-
-// Obligatorisk 2FA-opsætning som BLOKERENDE fuldskærm (ingen "spring over").
-// Håndhæves af enforce2FA: server siger mustSetup2fa=true for en ægte bruger uden 2FA,
-// og skærmen vises igen ved hver sideindlæsning, indtil 2FA er aktiveret.
-function force2faScreenEl(){
-  let el=document.getElementById('force2fa-screen');
-  if(!el){ el=document.createElement('div'); el.id='force2fa-screen'; el.className='login-screen'; el.style.zIndex=10001; document.body.appendChild(el); }
-  el.style.display='flex';
-  return el;
-}
-
-async function startForced2FA(){
-  const el=force2faScreenEl();
-  el.innerHTML=`<div class="login-box"><div class="login-title">Opsæt 2FA</div><div class="login-sub">Henter…</div></div>`;
-  let res; try{ res=await jsonpShip({action:'setupTOTP'}); }catch(e){ res={error:e.message}; }
-  if(res && res.error && res.error.indexOf('allerede aktiveret')>=0){ el.style.display='none'; return; }
-  if(!res || !res.secret){
-    el.innerHTML=`<div class="login-box"><div class="login-title">Opsæt 2FA</div>
-      <div class="login-sub" style="color:#e88;margin-top:6px">${esc(res&&res.error||'Kunne ikke starte 2FA-opsætning')}</div>
-      <button class="login-btn" style="margin-top:14px" onclick="startForced2FA()">Prøv igen</button></div>`;
-    return;
-  }
-  const sec=res.secret, secFmt=sec.match(/.{1,4}/g).join(' ');
-  const acct=res.account?('SESU Lager ('+res.account+')'):'SESU Lager';
-  const otpauth='otpauth://totp/'+encodeURIComponent(acct)+'?secret='+sec+'&issuer=SESU';
-  const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=180x180&data='+encodeURIComponent(otpauth);
-  el.innerHTML=`<div class="login-box" style="max-width:420px">
-    <div class="login-title">Opsæt 2FA (påkrævet)</div>
-    <div class="login-sub" style="margin-bottom:14px">Scan med Google Authenticator for at få adgang:</div>
-    <img src="${qrUrl}" style="width:150px;height:150px;border-radius:8px;background:#fff;padding:6px;display:block;margin:0 auto 12px" onerror="this.style.display='none'">
-    <div style="font-family:monospace;font-size:12px;color:rgba(255,255,255,.55);text-align:center;letter-spacing:.1em;word-break:break-all;margin-bottom:14px">${secFmt}</div>
-    <input id="f2fa-code" class="login-input" inputmode="numeric" maxlength="7" placeholder="000 000" autocomplete="one-time-code" style="text-align:center;letter-spacing:.25em;font-size:20px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" onkeydown="if(event.key==='Enter')forced2FAConfirm()">
-    <button class="login-btn" style="margin-top:12px" onclick="forced2FAConfirm()">Aktivér 2FA</button>
-    <div class="login-err" id="f2fa-err"></div>
-  </div>`;
-  setTimeout(()=>document.getElementById('f2fa-code')?.focus(),50);
-}
-
-async function forced2FAConfirm(){
-  const code=(document.getElementById('f2fa-code').value||'').replace(/\s/g,'');
-  const err=document.getElementById('f2fa-err');
-  if(code.length<6){ err.textContent='Koden skal være 6 cifre'; return; }
-  err.textContent='Bekræfter…';
-  let res; try{ res=await jsonpShip({action:'confirmTOTPSetup', code}); }catch(e){ res={error:e.message}; }
-  if(res && res.ok){ const el=document.getElementById('force2fa-screen'); if(el) el.style.display='none'; toast('2FA aktiveret ✓'); }
-  else { err.textContent=(res&&res.error)||'Forkert kode — prøv igen'; }
-}
-
-// Tvinger 2FA-opsætning hvis serveren siger den aktuelle bruger mangler den. Fail-open ved netværksfejl.
-async function enforce2FA(){
-  try { const r=await jsonpShip({action:'getTrustInfo'}); if(r && r.mustSetup2fa) startForced2FA(); }
-  catch(e){ /* bloker ikke ved netværksfejl */ }
-}
-window.addEventListener('DOMContentLoaded', maybeHandleInvite);
 
 // ── ANTHROPIC API-NØGLE ──
 function openApiKeyModal() {
@@ -6288,104 +6076,6 @@ async function saveApiKey() {
     err.textContent = 'Fejl: ' + e.message;
     btn.disabled = false; btn.textContent = 'Gem nøgle';
   }
-}
-
-// ── 2FA OPSÆTNING ──
-async function open2FAModal() {
-  const hash = sessionStorage.getItem('_2fa_hash') || '';
-  document.getElementById('modal-box').innerHTML = `
-    <div class="modal-head">
-      <div class="modal-title">To-faktor godkendelse</div>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div class="modal-body" id="tfa-body">
-      <div style="font-size:13px;color:var(--ink-2);margin-bottom:16px">Bekræft din adgangskode for at fortsætte:</div>
-      <div class="fg"><label>Adgangskode</label><input id="tfa-pw" type="password" placeholder="Din adgangskode" autofocus></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" onclick="closeModal()">Annuller</button>
-      <button class="btn btn-primary" onclick="tfa2Step1()">Fortsæt</button>
-    </div>`;
-  openModal();
-}
-
-async function tfa2Step1() {
-  const pw = document.getElementById('tfa-pw')?.value;
-  if(!pw){ toast('Angiv adgangskode'); return; }
-  const hash = await sha256(pw);
-  const body = document.getElementById('tfa-body'); if(!body) return;
-  body.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:var(--ink-3)">Henter status…</div>';
-  try {
-    // Check if 2FA is active by trying setupTOTP (will error if already active)
-    const res = await jsonpShip({ action:'setupTOTP', hash });
-    if(res.error === '2FA er allerede aktiveret'){
-      // Show disable form
-      body.innerHTML = `
-        <div style="background:rgba(30,160,90,.08);border:1px solid rgba(30,160,90,.2);border-radius:8px;padding:14px 16px;margin-bottom:16px">
-          <div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:4px">✓ To-faktor godkendelse er aktiv</div>
-          <div style="font-size:12px;color:var(--ink-2)">Login kræver Google Authenticator-kode.</div>
-        </div>
-        <div class="fg"><label>Deaktiver — indtast Google Authenticator-kode</label>
-          <input id="tfa-disable-code" type="text" inputmode="numeric" maxlength="7" placeholder="000 000" style="letter-spacing:.2em;font-size:16px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')"></div>
-        <div class="modal-foot" style="padding:0;border:none;margin-top:16px">
-          <button class="btn" onclick="closeModal()">Annuller</button>
-          <button class="btn btn-danger" onclick="tfa2Disable('${hash}')">Deaktiver 2FA</button>
-        </div>`;
-    } else if(res.secret) {
-      // Show setup
-      const sec = res.secret;
-      const secFmt = sec.match(/.{1,4}/g).join(' ');
-      const acct = res.account ? 'SESU Lager ('+res.account+')' : 'SESU Lager';
-      const otpauth = 'otpauth://totp/' + encodeURIComponent(acct) + '?secret=' + sec + '&issuer=SESU';
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(otpauth);
-      body.innerHTML = `
-        <div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">Scan QR-koden med <strong>Google Authenticator</strong>, eller indtast nøglen manuelt:</div>
-        <div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">
-          <img src="${qrUrl}" style="width:150px;height:150px;border-radius:8px;border:1px solid var(--border)" onerror="this.style.display='none'">
-          <div style="flex:1;min-width:160px">
-            <div style="font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Opsætningsnøgle</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:10px 12px;border-radius:6px;letter-spacing:.12em;line-height:1.8;word-break:break-all">${secFmt}</div>
-            <div style="font-size:11px;color:var(--ink-3);margin-top:8px">Tryk "+" i Google Authenticator → "Skriv opsætningsnøgle"<br>Kontonavn: <strong>SESU Lager</strong></div>
-          </div>
-        </div>
-        <div class="fg"><label>Bekræft — indtast den 6-cifrede kode fra appen</label>
-          <input id="tfa-confirm-code" type="text" inputmode="numeric" maxlength="7" placeholder="000 000" autofocus style="letter-spacing:.2em;font-size:16px" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" onkeydown="if(event.key==='Enter')tfa2Confirm('${hash}')"></div>
-        <div class="modal-foot" style="padding:0;border:none;margin-top:16px">
-          <button class="btn" onclick="closeModal()">Annuller</button>
-          <button class="btn btn-primary" onclick="tfa2Confirm('${hash}')">Aktiver 2FA</button>
-        </div>`;
-    } else {
-      body.innerHTML = `<div style="padding:16px;color:var(--red)">${esc(res.error||'Ukendt fejl')}</div>`;
-    }
-  } catch(e) { body.innerHTML = `<div style="padding:16px;color:var(--red)">Fejl: ${esc(e.message)}</div>`; }
-}
-
-async function tfa2Confirm(hash) {
-  const code = document.getElementById('tfa-confirm-code')?.value.replace(/\s/g,'');
-  if(!code||code.length<6){ toast('Indtast koden fra Google Authenticator'); return; }
-  try {
-    const res = await jsonpShip({ action:'confirmTOTPSetup', hash, code });
-    if(res.ok){
-      closeModal();
-      toast('✓ To-faktor godkendelse er nu aktiveret');
-    } else {
-      toast(res.error||'Forkert kode — prøv igen fra start');
-    }
-  } catch(e){ toast('Fejl: '+e.message); }
-}
-
-async function tfa2Disable(hash) {
-  const code = document.getElementById('tfa-disable-code')?.value.replace(/\s/g,'');
-  if(!code||code.length<6){ toast('Indtast koden fra Google Authenticator'); return; }
-  try {
-    const res = await jsonpShip({ action:'disableTOTP', hash, code });
-    if(res.ok){
-      closeModal();
-      toast('To-faktor godkendelse er deaktiveret');
-    } else {
-      toast(res.error||'Forkert kode');
-    }
-  } catch(e){ toast('Fejl: '+e.message); }
 }
 
 // ── CMD+K GLOBAL SØGNING ──
@@ -6429,8 +6119,6 @@ function renderCmdkDefault(){
     {icon:'📋',label:'Indkøbsordrer',action:'tab:indkoebsordrer'},
     {icon:'📊',label:'Rapporter',action:'tab:rapporter'},
     {icon:'+',label:'Tilføj ny vare',action:'new-item'},
-    {icon:'🔐',label:'Opsæt / skift min 2FA',action:'setup-2fa'},
-    ...(sessionStorage.getItem('lager_is_admin')==='1' ? [{icon:'👤',label:'Brugere (admin)',action:'admin-users'}] : []),
   ];
   document.getElementById('cmdk-results').innerHTML=
     `<div style="padding:4px 16px 2px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface)">Genveje</div>`+
@@ -6474,126 +6162,6 @@ function execCmdk(action){
   else if(action.startsWith('item:')) openItemModal(action.slice(5),null);
   else if(action.startsWith('lev:')){ showTab('leverandoerer'); setTimeout(()=>openLevModal(action.slice(4)),150); }
   else if(action.startsWith('room:')) showTab('rum');
-  else if(action==='admin-users') openUsersAdmin();
-  else if(action==='setup-2fa') open2FAModal();
-}
-
-// ── BRUGER-ADMINISTRATION (admin) ──
-async function openUsersAdmin(){
-  const box=document.getElementById('modal-box');
-  box.innerHTML=`<div class="modal-head"><div class="modal-title">Brugere</div><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="modal-body" id="users-admin-body" style="max-height:70vh;overflow-y:auto"><div style="padding:16px;color:var(--ink-3)">Henter…</div></div>`;
-  openModal();
-  renderUsersAdmin();
-}
-
-async function renderUsersAdmin(){
-  const body=document.getElementById('users-admin-body');
-  if(!body) return;
-  let res;
-  try { res=await jsonpShip({action:'listUsers'}); } catch(e){ body.innerHTML=`<div style="padding:16px;color:var(--red)">Fejl: ${esc(e.message)}</div>`; return; }
-  if(!res || res.error){ body.innerHTML=`<div style="padding:16px;color:var(--red)">${esc(res?.error||'Fejl')}</div>`; return; }
-  const you=res.you||'';
-  const rows=(res.users||[]).map(u=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--border-light);${u.disabled?'opacity:.5':''}">
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:13px">${esc(u.username)}${u.username===you?' <span style="font-size:10px;color:var(--ink-3)">(dig)</span>':''}
-          ${u.admin?'<span class="badge badge-blue" style="font-size:9px">admin</span>':''}
-          ${u.totp?'<span class="badge badge-green" style="font-size:9px">2FA</span>':'<span class="badge badge-gray" style="font-size:9px">ingen 2FA</span>'}
-          ${u.disabled?'<span class="badge badge-red" style="font-size:9px">deaktiveret</span>':''}</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="usersAdminToggle('${esc(u.username)}',${u.disabled?0:1})" title="${u.disabled?'Aktivér':'Deaktivér'}">${u.disabled?'▶ Aktivér':'⏸ Deaktivér'}</button>
-      ${u.totp?`<button class="btn btn-ghost btn-sm" onclick="usersAdminResetTotp('${esc(u.username)}')" title="Nulstil 2FA (fx tabt telefon)">↺ 2FA</button>`:''}
-      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="usersAdminDelete('${esc(u.username)}')" title="Slet bruger">🗑</button>
-    </div>`).join('');
-  body.innerHTML=`
-    <div style="margin-bottom:14px">${rows||'<div style="color:var(--ink-3)">Ingen brugere endnu</div>'}</div>
-    <div style="border-top:1px solid var(--border);padding-top:14px">
-      <div style="font-weight:600;font-size:12px;margin-bottom:8px">Tilføj / opdatér bruger</div>
-      <input id="ua-username" placeholder="Brugernavn" autocapitalize="none" autocorrect="off" spellcheck="false" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
-      <input id="ua-password" type="password" placeholder="Adgangskode (min. 8 tegn)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px"><input type="checkbox" id="ua-admin"> Admin (kan styre brugere)</label>
-      <button class="btn btn-primary btn-sm" onclick="usersAdminAdd()">Gem bruger</button>
-      <div id="ua-msg" style="font-size:12px;margin-top:8px"></div>
-    </div>
-    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-      <div style="font-weight:600;font-size:12px;margin-bottom:4px">Inviter ny bruger (engangslink)</div>
-      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Laver et link der udløber om 48 timer. Personen vælger selv brugernavn, kode og 2FA — ingen kode deles.</div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px"><input type="checkbox" id="ua-invite-admin"> Giv admin-rettigheder</label>
-      <button class="btn btn-primary btn-sm" onclick="usersAdminInvite()">Lav invitationslink</button>
-      <div id="ua-invite-out" style="margin-top:8px;font-size:12px"></div>
-    </div>
-    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-      <div style="font-weight:600;font-size:12px;margin-bottom:4px">Opsætning: forbind lager-scriptet</div>
-      <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px">Ét klik forbinder lager-scriptet, så nye brugeres login kan hente data. Skal kun gøres én gang.</div>
-      <button class="btn btn-primary btn-sm" onclick="usersAdminSyncKey()">🔗 Synkronisér nøgle til lager</button>
-      <div id="ua-sync" style="font-size:12px;margin-top:8px"></div>
-      <details style="margin-top:10px"><summary style="font-size:11px;color:var(--ink-3);cursor:pointer">Manuel metode (avanceret)</summary>
-        <div style="font-size:11px;color:var(--ink-3);margin:6px 0 8px">Alternativt: kopiér nøglen manuelt til lager-scriptets Script Properties som <code>TOKEN_SIGNING_KEY</code>.</div>
-        <button class="btn btn-ghost btn-sm" onclick="usersAdminShowKey()">Vis signeringsnøgle</button>
-        <div id="ua-key" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:8px;color:var(--ink-2)"></div>
-      </details>
-    </div>`;
-}
-
-async function usersAdminAdd(){
-  const msg=document.getElementById('ua-msg');
-  const username=(document.getElementById('ua-username').value||'').trim();
-  const pw=document.getElementById('ua-password').value||'';
-  const admin=document.getElementById('ua-admin').checked;
-  if(!username){ msg.style.color='var(--red)'; msg.textContent='Brugernavn mangler'; return; }
-  if(pw && pw.length<8){ msg.style.color='var(--red)'; msg.textContent='Adgangskode skal være mindst 8 tegn'; return; }
-  msg.style.color='var(--ink-3)'; msg.textContent='Gemmer…';
-  const payload={action:'adminSaveUser', new_username:username, make_admin:admin};
-  if(pw) payload.new_hash=await sha256(pw);
-  const res=await jsonpShip(payload);
-  if(res && res.ok){ msg.style.color='var(--green)'; msg.textContent='Gemt ✓'; renderUsersAdmin(); }
-  else { msg.style.color='var(--red)'; msg.textContent=res?.error||'Fejl'; }
-}
-async function usersAdminToggle(username,disabled){
-  const res=await jsonpShip({action:'adminSetDisabled', target:username, disabled:!!disabled});
-  if(res && res.ok) renderUsersAdmin(); else toast(res?.error||'Fejl');
-}
-async function usersAdminDelete(username){
-  if(!confirm(`Slet brugeren "${username}"? Personen kan ikke længere logge ind.`)) return;
-  const res=await jsonpShip({action:'adminDeleteUser', target:username});
-  if(res && res.ok) renderUsersAdmin(); else toast(res?.error||'Fejl');
-}
-async function usersAdminResetTotp(username){
-  if(!confirm(`Nulstil 2FA for "${username}"? Personen skal sætte Google Authenticator op igen ved næste login.`)) return;
-  const res=await jsonpShip({action:'adminResetTotp', target:username});
-  if(res && res.ok){ toast('2FA nulstillet'); renderUsersAdmin(); } else toast(res?.error||'Fejl');
-}
-async function usersAdminShowKey(){
-  const el=document.getElementById('ua-key');
-  el.textContent='Henter…';
-  const res=await jsonpShip({action:'getSigningKeyForLager'});
-  el.textContent = (res && res.key) ? res.key : (res?.error||'Fejl');
-}
-async function usersAdminSyncKey(){
-  const out=document.getElementById('ua-sync');
-  out.style.color='var(--ink-3)'; out.textContent='Synkroniserer… (kan tage et par sekunder)';
-  let res; try { res=await jsonp({action:'setSigningKey'}); } catch(e){ res={error:e.message}; }  // jsonp = lager-scriptet
-  if(res && res.ok){
-    out.style.color='var(--green)'; out.textContent='✓ Lager forbundet — genindlæser…';
-    setTimeout(()=>location.reload(), 1400);
-  } else { out.style.color='var(--red)'; out.textContent=(res&&res.error)||'Kunne ikke synkronisere'; }
-}
-async function usersAdminInvite(){
-  const out=document.getElementById('ua-invite-out');
-  out.style.color='var(--ink-3)'; out.textContent='Laver link…';
-  const makeAdmin=document.getElementById('ua-invite-admin')?.checked;
-  const res=await jsonpShip({action:'createInvite', make_admin:!!makeAdmin});
-  if(res && res.token){
-    const url=location.origin+location.pathname+'#invite='+res.token;
-    const exp=new Date(res.exp).toLocaleString('da-DK');
-    out.style.color='var(--ink)';
-    out.innerHTML=`<div style="color:var(--ink-3);margin-bottom:4px">Engangslink — udløber ${esc(exp)}:</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input readonly value="${esc(url)}" style="flex:1;font-family:monospace;font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:6px" onclick="this.select()">
-        <button class="btn btn-primary btn-sm" onclick="const i=this.previousElementSibling;i.select();navigator.clipboard.writeText(i.value).then(()=>toast('Link kopieret'))">Kopiér</button>
-      </div>`;
-  } else { out.style.color='var(--red)'; out.textContent=res?.error||'Fejl'; }
 }
 
 function searchCmdk(q){
@@ -6697,8 +6265,6 @@ if (sessionStorage.getItem('lager_auth') === '1') {
   const screen = document.getElementById('login-screen');
   if (screen) screen.style.display = 'none';
   resetInactivityTimer();
-  window.addEventListener('DOMContentLoaded', refreshAdminUI);
-  window.addEventListener('DOMContentLoaded', enforce2FA); // håndhæv obligatorisk 2FA ved genindlæsning
   const _prev=localStorage.getItem('lager_last_login'); const _lll=document.getElementById('last-login-label');
   if(_lll&&_prev) _lll.textContent='Seneste login: '+_prev;
   // Gendan aktiv fane fra URL-hash eller localStorage
@@ -6711,15 +6277,9 @@ if (sessionStorage.getItem('lager_auth') === '1') {
 } else {
   window.addEventListener('DOMContentLoaded', () => {
     const inp = document.getElementById('login-input');
-    // Husk brugernavn: forudfyld + fokusér adgangskode i stedet
-    const savedUser = (()=>{ try { return localStorage.getItem('lager_remember_user'); } catch(e){ return null; } })();
-    const unameInp = document.getElementById('login-username');
-    const rememberCb = document.getElementById('login-remember');
-    if (rememberCb) rememberCb.checked = true; // default: husk
-    if (savedUser && unameInp) unameInp.value = savedUser;
     if (inp) {
       inp.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
-      (savedUser ? inp : (unameInp || inp)).focus();
+      inp.focus();
     }
   });
 }

@@ -10,6 +10,36 @@ function initShipmondoCreds() {
   Logger.log('Sæt SHIPMONDO_USER og SHIPMONDO_KEY direkte i Script Properties — ikke her.');
 }
 
+function sha256Hex_(str) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, str);
+  return bytes.map(function (b) {
+    var v = b < 0 ? b + 256 : b;
+    var h = v.toString(16);
+    return h.length === 1 ? '0' + h : h;
+  }).join('');
+}
+
+// Kør denne funktion én gang manuelt i Apps Script-editoren for at slå det simple,
+// delte adgangskode-login til (ingen brugernavn, ingen 2FA) — erstatter multi-bruger-login.
+// Sætter LAGER_HASH/LAGER_HASH2 til de to gyldige koder og rydder USERS + 2FA/device-trust.
+function setupSharedPasswordAuth() {
+  var props = getProps();
+  props.setProperty('LAGER_HASH',  sha256Hex_('victa321'));
+  props.setProperty('LAGER_HASH2', sha256Hex_('tapuyo'));
+  if (!props.getProperty('LAGER_TOKEN')) {
+    props.setProperty('LAGER_TOKEN', Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, ''));
+  }
+  props.deleteProperty('USERS');
+  props.deleteProperty('TOTP_SECRET');
+  props.deleteProperty('TOTP_PENDING');
+  props.deleteProperty('DEVICE_TRUST_SECRET');
+  props.deleteProperty('DEVICE_TRUST_EXPIRES');
+  props.deleteProperty('DEVICE_TRUST_LIST');
+  props.setProperty('LOGIN_ATTEMPTS',   '0');
+  props.setProperty('LOGIN_LOCK_UNTIL', '0');
+  Logger.log('Delt adgangskode-login er nu aktivt — koderne "victa321" og "tapuyo" giver adgang, uden brugernavn.');
+}
+
 
 var TOKEN_VALIDITY_MS = 12 * 60 * 60 * 1000; // 12 timer
 
@@ -365,9 +395,10 @@ function verifyLoginMU_(p) {
 }
 
 function verifyLoginLegacy_(p) {
-  var props      = getProps();
-  var storedHash = props.getProperty('LAGER_HASH');
-  var token      = props.getProperty('LAGER_TOKEN');
+  var props       = getProps();
+  var storedHash  = props.getProperty('LAGER_HASH');
+  var storedHash2 = props.getProperty('LAGER_HASH2'); // valgfri anden gyldig delt adgangskode
+  var token       = props.getProperty('LAGER_TOKEN');
   if (!storedHash || !token) return { error: 'Server ikke konfigureret — sæt LAGER_HASH og LAGER_TOKEN i Script Properties' };
 
   var attempts  = parseInt(props.getProperty('LOGIN_ATTEMPTS') || '0', 10);
@@ -379,7 +410,7 @@ function verifyLoginLegacy_(p) {
     return { error: 'For mange forsøg — prøv igen om ' + minsLeft + ' min.' };
   }
 
-  if (p.hash === storedHash) {
+  if (p.hash === storedHash || (storedHash2 && p.hash === storedHash2)) {
     props.setProperty('LOGIN_ATTEMPTS',   '0');
     props.setProperty('LOGIN_LOCK_UNTIL', '0');
     var totpSecret = props.getProperty('TOTP_SECRET');
